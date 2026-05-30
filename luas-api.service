@@ -1,0 +1,12 @@
+[Unit]
+Description=Luas API
+After=network.target postgresql.service
+
+[Service]
+ExecStart=/opt/luas/venv/bin/uvicorn api:app --host 0.0.0.0 --port 8000 --app-dir /opt/luas
+Restart=always
+RestartSec=10
+User=luas
+
+[Install]
+WantedBy=multi-user.target
