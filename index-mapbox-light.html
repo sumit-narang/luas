@@ -13,50 +13,51 @@
 
         #controls {
             position: fixed; top: 16px; left: 16px; z-index: 10;
-            background: rgba(14, 17, 28, 0.93);
-            border: 1px solid rgba(255,255,255,0.08);
+            background: rgba(255, 255, 255, 0.96);
+            border: 1px solid rgba(0,0,0,0.10);
             border-radius: 10px; padding: 16px 20px; min-width: 310px;
-            box-shadow: 0 4px 32px rgba(0,0,0,0.55);
+            box-shadow: 0 4px 24px rgba(0,0,0,0.12);
         }
-        h1 { font-size: 15px; color: #e94560; margin-bottom: 12px; font-weight: 600; letter-spacing: 0.01em; }
+        h1 { font-size: 15px; color: #c0392b; margin-bottom: 12px; font-weight: 700; letter-spacing: 0.01em; }
         .row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
-        label { font-size: 12px; color: #888; }
+        label { font-size: 12px; color: #666; }
         select {
-            background: #1a1e2e; color: #ddd; border: 1px solid rgba(255,255,255,0.12);
+            background: #f4f4f6; color: #222; border: 1px solid rgba(0,0,0,0.14);
             border-radius: 5px; padding: 4px 8px; font-size: 12px;
         }
         button {
             border: none; border-radius: 5px; padding: 6px 16px;
             cursor: pointer; font-size: 12px; font-weight: 500;
         }
-        #load-btn  { background: #e94560; color: white; }
-        #load-btn:hover { background: #c73652; }
-        #load-btn:disabled { background: #333; color: #666; cursor: default; }
-        #play-btn  { background: #1e5c30; color: #6fcf87; }
-        #play-btn:hover { background: #266b3a; }
-        #play-btn:disabled { background: #333; color: #555; cursor: default; }
+        #load-btn  { background: #c0392b; color: white; }
+        #load-btn:hover { background: #a93226; }
+        #load-btn:disabled { background: #ddd; color: #aaa; cursor: default; }
+        #play-btn  { background: #e8f5e9; color: #2e7d32; }
+        #play-btn:hover { background: #c8e6c9; }
+        #play-btn:disabled { background: #eee; color: #aaa; cursor: default; }
         #slider-row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
-        #slider { flex: 1; accent-color: #e94560; }
-        #time-display { font-size: 12px; color: #888; min-width: 65px; font-variant-numeric: tabular-nums; }
-        #stats { font-size: 11px; color: #555; margin-top: 4px; }
-        #loading-bar { height: 3px; background: #1a1e2e; border-radius: 2px; margin-top: 8px; overflow: hidden; }
-        #loading-fill { height: 100%; background: #e94560; width: 0%; transition: width 0.3s; }
-        #loading-text { font-size: 11px; color: #555; margin-top: 4px; }
+        #slider { flex: 1; accent-color: #c0392b; }
+        #time-display { font-size: 12px; color: #555; min-width: 65px; font-variant-numeric: tabular-nums; }
+        #stats { font-size: 11px; color: #999; margin-top: 4px; }
+        #loading-bar { height: 3px; background: #eee; border-radius: 2px; margin-top: 8px; overflow: hidden; }
+        #loading-fill { height: 100%; background: #c0392b; width: 0%; transition: width 0.3s; }
+        #loading-text { font-size: 11px; color: #aaa; margin-top: 4px; }
 
         #legend {
             position: fixed; bottom: 32px; left: 16px; z-index: 10;
-            background: rgba(14, 17, 28, 0.93); border: 1px solid rgba(255,255,255,0.08);
-            border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #aaa;
-            box-shadow: 0 2px 16px rgba(0,0,0,0.5);
+            background: rgba(255, 255, 255, 0.96); border: 1px solid rgba(0,0,0,0.10);
+            border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #555;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.10);
         }
         .legend-item { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
         .swatch { width: 28px; height: 4px; border-radius: 2px; }
 
         #hint {
             position: fixed; bottom: 32px; right: 16px; z-index: 10;
-            font-size: 11px; color: #666;
-            background: rgba(14,17,28,0.85); border: 1px solid rgba(255,255,255,0.06);
+            font-size: 11px; color: #999;
+            background: rgba(255,255,255,0.92); border: 1px solid rgba(0,0,0,0.08);
             padding: 5px 9px; border-radius: 5px;
+            box-shadow: 0 1px 6px rgba(0,0,0,0.08);
         }
     </style>
 </head>
@@ -86,8 +87,8 @@
 </div>
 
 <div id="legend">
-    <div class="legend-item"><div class="swatch" style="background:#e94560"></div> Red Line</div>
-    <div class="legend-item"><div class="swatch" style="background:#4caf50"></div> Green Line</div>
+    <div class="legend-item"><div class="swatch" style="background:#c0392b"></div> Red Line</div>
+    <div class="legend-item"><div class="swatch" style="background:#2e7d32"></div> Green Line</div>
 </div>
 
 <div id="hint">Drag · Ctrl+drag to tilt · Scroll to zoom</div>
@@ -117,7 +118,7 @@ async function apiFetch(path) {
 // ── Map ────────────────────────────────────────────────────────────────
 const map = new mapboxgl.Map({
     container: 'map',
-    style: 'mapbox://styles/mapbox/dark-v11',
+    style: 'mapbox://styles/mapbox/light-v11',
     center: [-6.2750, 53.3420],
     zoom: 12.2,
     pitch: 58,
@@ -136,7 +137,7 @@ function setProgress(pct, text) {
 // ── Replay state ───────────────────────────────────────────────────────
 let stops = [], frames = [], frameIndex = 0;
 let playing = false, playInterval = null, animFrameId = null;
-const tramTrails = {};   // key → { positions: [[lng,lat]…], color }
+const tramTrails = {};
 const TRAIL_MAX = 40;
 
 function lerp(a, b, t) { return a + (b - a) * t; }
@@ -166,9 +167,8 @@ function renderFrame(frameData, prevFrameData, duration = 180) {
     const toMap = getTramMap(frameData);
     const fromMap = prevFrameData ? getTramMap(prevFrameData) : null;
 
-    // Update trails
     for (const [key, tram] of toMap) {
-        const color = tram.line === 'Red' ? '#e94560' : '#4caf50';
+        const color = tram.line === 'Red' ? '#c0392b' : '#2e7d32';
         if (!tramTrails[key]) tramTrails[key] = { positions: [], color };
         const trail = tramTrails[key];
         const pos = [tram.stop_lon, tram.stop_lat];
@@ -183,7 +183,6 @@ function renderFrame(frameData, prevFrameData, duration = 180) {
     }
     updateTrailSource();
 
-    // Animate tram positions
     const start = performance.now();
     function tick(now) {
         const raw = Math.min((now - start) / duration, 1);
@@ -200,7 +199,7 @@ function renderFrame(frameData, prevFrameData, duration = 180) {
             features.push({
                 type: 'Feature',
                 geometry: { type: 'Point', coordinates: [lon, lat] },
-                properties: { color: tram.line === 'Red' ? '#e94560' : '#4caf50' }
+                properties: { color: tram.line === 'Red' ? '#c0392b' : '#2e7d32' }
             });
         }
         map.getSource('trams').setData({ type: 'FeatureCollection', features });
@@ -239,13 +238,12 @@ map.on('style.load', async () => {
         'source-layer': 'building',
         filter: ['==', 'extrude', 'true'],
         type: 'fill-extrusion',
-        minzoom: 10,           // start loading building data from zoom 10
+        minzoom: 10,
         paint: {
             'fill-extrusion-color': [
                 'interpolate', ['linear'], ['get', 'height'],
-                0, '#1e2235', 30, '#252840', 80, '#2e3355'
+                0, '#d8dce8', 30, '#cdd1e0', 80, '#bec3d4'
             ],
-            // buildings grow in between zoom 11 → 11.8 (visible much earlier)
             'fill-extrusion-height': [
                 'interpolate', ['linear'], ['zoom'],
                 11, 0, 11.8, ['get', 'height']
@@ -253,35 +251,33 @@ map.on('style.load', async () => {
             'fill-extrusion-base': ['get', 'min_height'],
             'fill-extrusion-opacity': [
                 'interpolate', ['linear'], ['zoom'],
-                10, 0, 11, 0.85
+                10, 0, 11, 0.9
             ]
         }
     }, labelLayer?.id);
 
     setProgress(20, 'Fetching stops…');
-    stops = await apiFetch('/api/stops');
+    [stops] = await Promise.all([
+        apiFetch('/api/stops'),
+    ]);
 
-    // ── Routes (actual OSM track geometry) ────────────────────────────
+    // ── Routes (actual OSM track geometry) ─────────────────────────────
     const routesGeoJSON = await fetch('/routes.geojson').then(r => r.json());
     const redFeature   = routesGeoJSON.features.find(f => f.properties.line === 'Red');
     const greenFeature = routesGeoJSON.features.find(f => f.properties.line === 'Green');
 
     for (const [id, feature, color] of [
-        ['red-route',   redFeature,   '#e94560'],
-        ['green-route', greenFeature, '#4caf50']
+        ['red-route',   redFeature,   '#c0392b'],
+        ['green-route', greenFeature, '#2e7d32']
     ]) {
         map.addSource(id, { type: 'geojson', data: feature });
-        map.addLayer({ id: `${id}-glow`, type: 'line', source: id,
+        map.addLayer({ id: `${id}-shadow`, type: 'line', source: id,
             layout: { 'line-cap': 'round', 'line-join': 'round' },
-            paint: { 'line-color': color, 'line-width': 14, 'line-opacity': 0.12, 'line-blur': 8 }
-        }, labelLayer?.id);
-        map.addLayer({ id: `${id}-mid`, type: 'line', source: id,
-            layout: { 'line-cap': 'round', 'line-join': 'round' },
-            paint: { 'line-color': color, 'line-width': 5, 'line-opacity': 0.30, 'line-blur': 2 }
+            paint: { 'line-color': '#000', 'line-width': 6, 'line-opacity': 0.08, 'line-translate': [0, 2] }
         }, labelLayer?.id);
         map.addLayer({ id: `${id}-core`, type: 'line', source: id,
             layout: { 'line-cap': 'round', 'line-join': 'round' },
-            paint: { 'line-color': color, 'line-width': 2.5, 'line-opacity': 0.95 }
+            paint: { 'line-color': color, 'line-width': 3.5, 'line-opacity': 1 }
         }, labelLayer?.id);
     }
 
@@ -291,33 +287,36 @@ map.on('style.load', async () => {
         features: stops.map(s => ({
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [s.longitude, s.latitude] },
-            properties: { color: s.line === 'Red' ? '#e94560' : '#4caf50', name: s.stop_abv }
+            properties: {
+                color: s.line === 'Red' ? '#c0392b' : '#2e7d32',
+                name: s.stop_name
+            }
         }))
     };
     map.addSource('stops', { type: 'geojson', data: stopGeoJSON });
-    map.addLayer({ id: 'stops-glow', type: 'circle', source: 'stops',
-        paint: { 'circle-radius': 9, 'circle-color': ['get', 'color'], 'circle-opacity': 0.18, 'circle-blur': 1 }
-    });
     map.addLayer({ id: 'stops-dot', type: 'circle', source: 'stops',
         paint: {
-            'circle-radius': 5,
-            'circle-color': ['get', 'color'],
-            'circle-stroke-width': 2,
-            'circle-stroke-color': '#ffffff'
+            'circle-radius': 4,
+            'circle-color': '#111',
+            'circle-stroke-width': 2.5,
+            'circle-stroke-color': ['get', 'color']
         }
     });
     map.addLayer({ id: 'stop-labels', type: 'symbol', source: 'stops',
-        minzoom: 14,
+        minzoom: 11,
         layout: {
             'text-field': ['get', 'name'],
-            'text-size': 11,
-            'text-offset': [0, 1.3],
-            'text-anchor': 'top',
-            'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular']
+            'text-size': ['interpolate', ['linear'], ['zoom'], 11, 10, 13, 13, 15, 15],
+            'text-offset': [0.6, 0],
+            'text-anchor': 'left',
+            'text-max-width': 8,
+            'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+            'text-allow-overlap': false,
+            'text-ignore-placement': false
         },
         paint: {
-            'text-color': '#ddd',
-            'text-halo-color': 'rgba(0,0,0,0.7)',
+            'text-color': '#1a1a1a',
+            'text-halo-color': 'rgba(255,255,255,0.95)',
             'text-halo-width': 1.5
         }
     });
@@ -326,20 +325,17 @@ map.on('style.load', async () => {
     map.addSource('trails', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({ id: 'trails-glow', type: 'line', source: 'trails',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': ['get', 'color'], 'line-width': 16, 'line-opacity': 0.15, 'line-blur': 10 }
+        paint: { 'line-color': ['get', 'color'], 'line-width': 14, 'line-opacity': 0.18, 'line-blur': 8 }
     });
     map.addLayer({ id: 'trails-core', type: 'line', source: 'trails',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': ['get', 'color'], 'line-width': 5, 'line-opacity': 0.80 }
+        paint: { 'line-color': ['get', 'color'], 'line-width': 4, 'line-opacity': 0.85 }
     });
 
     // ── Trams ──────────────────────────────────────────────────────────
     map.addSource('trams', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({ id: 'trams-halo', type: 'circle', source: 'trams',
-        paint: { 'circle-radius': 20, 'circle-color': ['get', 'color'], 'circle-opacity': 0.18, 'circle-blur': 1 }
-    });
-    map.addLayer({ id: 'trams-glow', type: 'circle', source: 'trams',
-        paint: { 'circle-radius': 14, 'circle-color': ['get', 'color'], 'circle-opacity': 0.30, 'circle-blur': 0.5 }
+        paint: { 'circle-radius': 18, 'circle-color': ['get', 'color'], 'circle-opacity': 0.15, 'circle-blur': 1 }
     });
     map.addLayer({ id: 'trams-dot', type: 'circle', source: 'trams',
         paint: {
