@@ -118,7 +118,7 @@ async function apiFetch(path) {
 // ── Map ────────────────────────────────────────────────────────────────
 const map = new mapboxgl.Map({
     container: 'map',
-    style: 'mapbox://styles/mapbox/light-v11',
+    style: 'mapbox://styles/mapbox/standard',
     center: [-6.2750, 53.3420],
     zoom: 12.2,
     pitch: 58,
@@ -228,38 +228,12 @@ function updateTrailSource() {
 // ── Map ready ──────────────────────────────────────────────────────────
 map.on('style.load', async () => {
 
-    // ── 3D buildings ───────────────────────────────────────────────────
-    const labelLayer = map.getStyle().layers.find(
-        l => l.type === 'symbol' && l.layout['text-field']
-    );
-    map.addLayer({
-        id: 'buildings-3d',
-        source: 'composite',
-        'source-layer': 'building',
-        filter: ['==', 'extrude', 'true'],
-        type: 'fill-extrusion',
-        minzoom: 10,
-        paint: {
-            'fill-extrusion-color': [
-                'interpolate', ['linear'], ['get', 'height'],
-                0, '#d8dce8', 30, '#cdd1e0', 80, '#bec3d4'
-            ],
-            'fill-extrusion-height': [
-                'interpolate', ['linear'], ['zoom'],
-                11, 0, 11.8, ['get', 'height']
-            ],
-            'fill-extrusion-base': ['get', 'min_height'],
-            'fill-extrusion-opacity': [
-                'interpolate', ['linear'], ['zoom'],
-                10, 0, 11, 0.9
-            ]
-        }
-    }, labelLayer?.id);
+    // Standard style config: Faded theme + Dusk light
+    map.setConfigProperty('basemap', 'colorTheme', 'faded');
+    map.setConfigProperty('basemap', 'lightPreset', 'dusk');
 
     setProgress(20, 'Fetching stops…');
-    [stops] = await Promise.all([
-        apiFetch('/api/stops'),
-    ]);
+    stops = await apiFetch('/api/stops');
 
     // ── Routes (actual OSM track geometry) ─────────────────────────────
     const routesGeoJSON = await fetch('/routes.geojson').then(r => r.json());
@@ -267,18 +241,20 @@ map.on('style.load', async () => {
     const greenFeature = routesGeoJSON.features.find(f => f.properties.line === 'Green');
 
     for (const [id, feature, color] of [
-        ['red-route',   redFeature,   '#c0392b'],
-        ['green-route', greenFeature, '#2e7d32']
+        ['red-route',   redFeature,   '#e83030'],
+        ['green-route', greenFeature, '#2ea84e']
     ]) {
         map.addSource(id, { type: 'geojson', data: feature });
         map.addLayer({ id: `${id}-shadow`, type: 'line', source: id,
+            slot: 'middle',
             layout: { 'line-cap': 'round', 'line-join': 'round' },
-            paint: { 'line-color': '#000', 'line-width': 6, 'line-opacity': 0.08, 'line-translate': [0, 2] }
-        }, labelLayer?.id);
+            paint: { 'line-color': '#000', 'line-width': 6, 'line-opacity': 0.12, 'line-translate': [0, 2] }
+        });
         map.addLayer({ id: `${id}-core`, type: 'line', source: id,
+            slot: 'middle',
             layout: { 'line-cap': 'round', 'line-join': 'round' },
             paint: { 'line-color': color, 'line-width': 3.5, 'line-opacity': 1 }
-        }, labelLayer?.id);
+        });
     }
 
     // ── Stops ──────────────────────────────────────────────────────────
@@ -288,13 +264,14 @@ map.on('style.load', async () => {
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [s.longitude, s.latitude] },
             properties: {
-                color: s.line === 'Red' ? '#c0392b' : '#2e7d32',
+                color: s.line === 'Red' ? '#e83030' : '#2ea84e',
                 name: s.stop_name
             }
         }))
     };
     map.addSource('stops', { type: 'geojson', data: stopGeoJSON });
     map.addLayer({ id: 'stops-dot', type: 'circle', source: 'stops',
+        slot: 'top',
         paint: {
             'circle-radius': 4,
             'circle-color': '#111',
@@ -303,6 +280,7 @@ map.on('style.load', async () => {
         }
     });
     map.addLayer({ id: 'stop-labels', type: 'symbol', source: 'stops',
+        slot: 'top',
         minzoom: 11,
         layout: {
             'text-field': ['get', 'name'],
@@ -315,8 +293,8 @@ map.on('style.load', async () => {
             'text-ignore-placement': false
         },
         paint: {
-            'text-color': '#1a1a1a',
-            'text-halo-color': 'rgba(255,255,255,0.95)',
+            'text-color': '#fff',
+            'text-halo-color': 'rgba(0,0,0,0.6)',
             'text-halo-width': 1.5
         }
     });
@@ -324,20 +302,24 @@ map.on('style.load', async () => {
     // ── Tram trails ────────────────────────────────────────────────────
     map.addSource('trails', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({ id: 'trails-glow', type: 'line', source: 'trails',
+        slot: 'top',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': ['get', 'color'], 'line-width': 14, 'line-opacity': 0.18, 'line-blur': 8 }
+        paint: { 'line-color': ['get', 'color'], 'line-width': 14, 'line-opacity': 0.25, 'line-blur': 8 }
     });
     map.addLayer({ id: 'trails-core', type: 'line', source: 'trails',
+        slot: 'top',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': ['get', 'color'], 'line-width': 4, 'line-opacity': 0.85 }
+        paint: { 'line-color': ['get', 'color'], 'line-width': 4, 'line-opacity': 0.9 }
     });
 
     // ── Trams ──────────────────────────────────────────────────────────
     map.addSource('trams', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({ id: 'trams-halo', type: 'circle', source: 'trams',
-        paint: { 'circle-radius': 18, 'circle-color': ['get', 'color'], 'circle-opacity': 0.15, 'circle-blur': 1 }
+        slot: 'top',
+        paint: { 'circle-radius': 18, 'circle-color': ['get', 'color'], 'circle-opacity': 0.2, 'circle-blur': 1 }
     });
     map.addLayer({ id: 'trams-dot', type: 'circle', source: 'trams',
+        slot: 'top',
         paint: {
             'circle-radius': 9,
             'circle-color': ['get', 'color'],
