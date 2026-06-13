@@ -158,8 +158,14 @@
 
         stops.forEach(s => {
             const el = document.createElement('div');
-            el.style.cssText = `width:6px;height:6px;border-radius:50%;background:${s.line==='Red'?'#e94560':'#4caf50'};border:1px solid white;`;
-            new mapboxgl.Marker(el).setLngLat([s.longitude, s.latitude]).addTo(map);
+            el.style.cssText = `width:6px;height:6px;border-radius:50%;background:${s.line==='Red'?'#e94560':'#4caf50'};border:1px solid white;cursor:pointer;`;
+            const popup = new mapboxgl.Popup({ offset: 8, closeButton: false }).setText(`${s.stop_name} (${s.line} Line)`);
+            const marker = new mapboxgl.Marker(el)
+                .setLngLat([s.longitude, s.latitude])
+                .setPopup(popup)
+                .addTo(map);
+            el.addEventListener('mouseenter', () => marker.togglePopup());
+            el.addEventListener('mouseleave', () => marker.togglePopup());
         });
     }
 
