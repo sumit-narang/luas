@@ -4,3 +4,5 @@ __pycache__/
 *.pyo
 docs/
 .playwright-mcp/
+*.jpeg
+*.png
