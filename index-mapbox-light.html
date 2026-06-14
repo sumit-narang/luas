@@ -315,6 +315,17 @@ function renderFrame(frameData, prevFrameData, duration = 180) {
         if (!tramHistory[key]) tramHistory[key] = [];
         const h = tramHistory[key];
         if (h[h.length - 1] !== tram.stop_abv) {
+            const newProj = stopRouteProj[tram.stop_abv];
+            if (h.length > 0 && newProj) {
+                const lastProj = stopRouteProj[h[h.length - 1]];
+                // If stop jump is too large (> 2500m ≈ 3 stop spacings), a different
+                // physical tram took over this key — reset history to avoid diagonal trails
+                if (lastProj && (lastProj.routeKey !== newProj.routeKey ||
+                        Math.abs(newProj.dist - lastProj.dist) > 2500)) {
+                    tramHistory[key] = [tram.stop_abv];
+                    continue;
+                }
+            }
             h.push(tram.stop_abv);
             if (h.length > TRAIL_STOPS) h.shift();
         }
@@ -373,19 +384,24 @@ function updateTrailSource(toMap) {
         if (abvs.length < 2) continue;
         const projs = abvs.map(a => stopRouteProj[a]).filter(Boolean);
         if (projs.length < 2) continue;
-        const routeKey = projs[0].routeKey;
-        const idx = routeIndexes[routeKey];
-        if (!idx) continue;
-        const coords = [];
+        const color = toMap?.get(key)?.line === 'Red' ? '#ff2020' : '#00ff55';
+
+        // Build trail, flushing a new feature whenever routeKey changes mid-history
+        let coords = [];
         for (let i = 0; i < projs.length - 1; i++) {
-            if (projs[i].routeKey !== projs[i+1].routeKey) continue;
+            if (projs[i].routeKey !== projs[i+1].routeKey) {
+                if (coords.length >= 2) features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: { color } });
+                coords = [];
+                continue;
+            }
+            // Use the idx that matches THIS segment's routeKey (not projs[0]'s)
+            const idx = routeIndexes[projs[i].routeKey];
+            if (!idx) continue;
             const seg = routeSubsegment(projs[i].dist, projs[i+1].dist, idx);
             if (coords.length === 0) coords.push(...seg);
             else coords.push(...seg.slice(1));
         }
-        if (coords.length < 2) continue;
-        const color = toMap?.get(key)?.line === 'Red' ? '#ff2020' : '#00ff55';
-        features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: { color } });
+        if (coords.length >= 2) features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: { color } });
     }
     map.getSource('trails').setData({ type: 'FeatureCollection', features });
 }
