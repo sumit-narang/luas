@@ -39,6 +39,9 @@
         #slider { flex: 1; accent-color: #c0392b; }
         #time-display { font-size: 12px; color: #555; min-width: 65px; font-variant-numeric: tabular-nums; }
         #stats { font-size: 11px; color: #999; margin-top: 4px; }
+        #speed-group { display: flex; background: #ebebf0; border-radius: 16px; padding: 2px; gap: 1px; margin-left: 4px; }
+        .spd { border: none; background: transparent; border-radius: 13px; padding: 4px 9px; font-size: 11px; cursor: pointer; color: #666; font-weight: 500; }
+        .spd.active { background: #c0392b; color: #fff; }
         #loading-bar { height: 3px; background: #eee; border-radius: 2px; margin-top: 8px; overflow: hidden; }
         #loading-fill { height: 100%; background: #c0392b; width: 0%; transition: width 0.3s; }
         #loading-text { font-size: 11px; color: #aaa; margin-top: 4px; }
@@ -94,6 +97,12 @@
     <div class="row">
         <button id="load-btn" disabled>Load</button>
         <button id="play-btn" disabled>▶ Play</button>
+        <div id="speed-group">
+            <button class="spd active" data-ms="400" data-dur="280">½×</button>
+            <button class="spd" data-ms="200" data-dur="180">1×</button>
+            <button class="spd" data-ms="100" data-dur="90">2×</button>
+            <button class="spd" data-ms="40"  data-dur="35">5×</button>
+        </div>
     </div>
     <div id="slider-row">
         <input type="range" id="slider" min="0" max="100" value="0" disabled>
@@ -217,6 +226,7 @@ function setProgress(pct, text) {
 // ── Replay state ───────────────────────────────────────────────────────
 let stops = [], frames = [], frameIndex = 0;
 let playing = false, playInterval = null, animFrameId = null;
+let playMs = 400, playDur = 280;   // interval and animation duration (ms)
 const tramHistory  = {};  // key → stop_abv[]
 const TRAIL_STOPS  = 5;   // stop positions to remember per tram
 
@@ -639,23 +649,39 @@ document.getElementById('slider').addEventListener('input', e => {
     if (frames[frameIndex]) renderFrame(frames[frameIndex], frames[frameIndex - 1], 150);
 });
 
+function startPlayback() {
+    const btn = document.getElementById('play-btn');
+    playing = true; btn.textContent = '⏸ Pause';
+    playInterval = setInterval(() => {
+        if (frameIndex >= frames.length - 1) {
+            clearInterval(playInterval); playing = false;
+            btn.textContent = '▶ Play'; return;
+        }
+        const prev = frames[frameIndex++];
+        document.getElementById('slider').value = frameIndex;
+        renderFrame(frames[frameIndex], prev, playDur);
+    }, playMs);
+}
+
 document.getElementById('play-btn').addEventListener('click', () => {
     const btn = document.getElementById('play-btn');
     if (playing) {
         clearInterval(playInterval); playing = false;
         btn.textContent = '▶ Play';
     } else {
-        playing = true; btn.textContent = '⏸ Pause';
-        playInterval = setInterval(() => {
-            if (frameIndex >= frames.length - 1) {
-                clearInterval(playInterval); playing = false;
-                btn.textContent = '▶ Play'; return;
-            }
-            const prev = frames[frameIndex++];
-            document.getElementById('slider').value = frameIndex;
-            renderFrame(frames[frameIndex], prev, 180);
-        }, 200);
+        startPlayback();
     }
+});
+
+document.getElementById('speed-group').addEventListener('click', e => {
+    const btn = e.target.closest('.spd');
+    if (!btn) return;
+    document.querySelectorAll('.spd').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    playMs  = parseInt(btn.dataset.ms);
+    playDur = parseInt(btn.dataset.dur);
+    // Restart interval if already playing
+    if (playing) { clearInterval(playInterval); startPlayback(); }
 });
 
 // ── Config panel ───────────────────────────────────────────────────────
