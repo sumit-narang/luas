@@ -137,6 +137,27 @@
             <button class="tog" data-value="night">Night</button>
         </div>
     </div>
+    <div class="config-row">
+        <span class="config-label">Trail style</span>
+        <div class="toggle-group" id="trail-group">
+            <button class="tog active" data-value="uniform">Uniform</button>
+            <button class="tog" data-value="comet">Comet ✦</button>
+        </div>
+    </div>
+    <div class="config-row">
+        <span class="config-label">POI labels</span>
+        <div class="toggle-group" id="poi-group">
+            <button class="tog active" data-value="show">Show</button>
+            <button class="tog" data-value="hide">Hide</button>
+        </div>
+    </div>
+    <div class="config-row">
+        <span class="config-label">Tram head</span>
+        <div class="toggle-group" id="head-group">
+            <button class="tog active" data-value="basic">Basic</button>
+            <button class="tog" data-value="distinct">Distinct ◉</button>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -149,6 +170,9 @@ mapboxgl.accessToken = MAPBOX_TOKEN;
 let cfgBasemap = 'standard';
 let cfgTheme   = 'faded';
 let cfgLight   = 'dusk';
+let cfgTrail   = 'uniform';   // 'uniform' | 'comet'
+let cfgPOI     = 'show';      // 'show' | 'hide'
+let cfgHead    = 'basic';     // 'basic' | 'distinct'
 let stopsCache      = null;
 let routesCache     = null;
 let snappedCache    = null;
@@ -368,6 +392,18 @@ function renderFrame(frameData, prevFrameData, duration = 180) {
         }
         map.getSource('trams').setData({ type: 'FeatureCollection', features });
 
+        // Distinct head: bright dot at current tram position
+        if (map.getSource('tram-heads')) {
+            const headFeatures = cfgHead === 'distinct'
+                ? features.map(f => {
+                    const mid = f.geometry.coordinates[Math.floor(f.geometry.coordinates.length / 2)];
+                    return { type: 'Feature', geometry: { type: 'Point', coordinates: mid },
+                             properties: { color: f.properties.color } };
+                })
+                : [];
+            map.getSource('tram-heads').setData({ type: 'FeatureCollection', features: headFeatures });
+        }
+
         document.getElementById('stats').textContent = `Trams: ${toMap.size}`;
         document.getElementById('time-display').textContent =
             new Date(frameData[0]).toLocaleTimeString('en-IE', { timeZone: 'Europe/Dublin' });
@@ -377,31 +413,49 @@ function renderFrame(frameData, prevFrameData, duration = 180) {
     animFrameId = requestAnimationFrame(tick);
 }
 
+function buildTrailCoords(abvs) {
+    const projs = abvs.map(a => stopRouteProj[a]).filter(Boolean);
+    if (projs.length < 2) return [];
+    const all = [];
+    for (let i = 0; i < projs.length - 1; i++) {
+        if (projs[i].routeKey !== projs[i+1].routeKey) { all.length = 0; continue; }
+        const idx = routeIndexes[projs[i].routeKey];
+        if (!idx) continue;
+        const seg = routeSubsegment(projs[i].dist, projs[i+1].dist, idx);
+        if (all.length === 0) all.push(...seg); else all.push(...seg.slice(1));
+    }
+    return all;
+}
+
 function updateTrailSource(toMap) {
     if (!map.getSource('trails')) return;
     const features = [];
     for (const [key, abvs] of Object.entries(tramHistory)) {
         if (abvs.length < 2) continue;
-        const projs = abvs.map(a => stopRouteProj[a]).filter(Boolean);
-        if (projs.length < 2) continue;
+        const coords = buildTrailCoords(abvs);
+        if (coords.length < 2) continue;
         const color = toMap?.get(key)?.line === 'Red' ? '#ff2020' : '#00ff55';
 
-        // Build trail, flushing a new feature whenever routeKey changes mid-history
-        let coords = [];
-        for (let i = 0; i < projs.length - 1; i++) {
-            if (projs[i].routeKey !== projs[i+1].routeKey) {
-                if (coords.length >= 2) features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: { color } });
-                coords = [];
-                continue;
+        if (cfgTrail === 'comet') {
+            // Split into 4 segments; opacity increases toward the front (newest end)
+            const N = 4;
+            const len = coords.length;
+            for (let i = 0; i < N; i++) {
+                const s = Math.floor((i / N) * (len - 1));
+                const e = Math.ceil(((i + 1) / N) * (len - 1));
+                const seg = coords.slice(s, Math.min(e + 1, len));
+                if (seg.length < 2) continue;
+                features.push({ type: 'Feature',
+                    geometry: { type: 'LineString', coordinates: seg },
+                    properties: { color, opacity: (i + 1) / N }
+                });
             }
-            // Use the idx that matches THIS segment's routeKey (not projs[0]'s)
-            const idx = routeIndexes[projs[i].routeKey];
-            if (!idx) continue;
-            const seg = routeSubsegment(projs[i].dist, projs[i+1].dist, idx);
-            if (coords.length === 0) coords.push(...seg);
-            else coords.push(...seg.slice(1));
+        } else {
+            features.push({ type: 'Feature',
+                geometry: { type: 'LineString', coordinates: coords },
+                properties: { color, opacity: 1 }
+            });
         }
-        if (coords.length >= 2) features.push({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: { color } });
     }
     map.getSource('trails').setData({ type: 'FeatureCollection', features });
 }
@@ -494,14 +548,32 @@ map.on('style.load', async () => {
     map.addLayer({ id: 'trails-glow', type: 'line', source: 'trails',
         slot: 'top',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': ['get', 'color'], 'line-width': 14, 'line-opacity': 0.25, 'line-blur': 8,
+        paint: { 'line-color': ['get', 'color'],
+                 'line-width': 14,
+                 'line-opacity': ['*', ['get', 'opacity'], 0.25],
+                 'line-blur': 8,
                  'line-emissive-strength': 1 }
     });
     map.addLayer({ id: 'trails-core', type: 'line', source: 'trails',
         slot: 'top',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': ['get', 'color'], 'line-width': 4, 'line-opacity': 0.9,
+        paint: { 'line-color': ['get', 'color'],
+                 'line-width': 4,
+                 'line-opacity': ['*', ['get', 'opacity'], 0.9],
                  'line-emissive-strength': 1 }
+    });
+
+    // ── Tram head highlight (distinct mode) ───────────────────────────
+    map.addSource('tram-heads', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'tram-head-glow', type: 'circle', source: 'tram-heads',
+        slot: 'top',
+        paint: { 'circle-radius': 18, 'circle-color': ['get', 'color'],
+                 'circle-opacity': 0.35, 'circle-blur': 0.5, 'circle-emissive-strength': 1 }
+    });
+    map.addLayer({ id: 'tram-head-core', type: 'circle', source: 'tram-heads',
+        slot: 'top',
+        paint: { 'circle-radius': 5, 'circle-color': '#ffffff',
+                 'circle-opacity': 1, 'circle-emissive-strength': 1 }
     });
 
     // ── Trams (oriented rectangle segments) ───────────────────────────
@@ -618,6 +690,33 @@ document.getElementById('light-group').addEventListener('click', e => {
     cfgLight = btn.dataset.value;
     activateToggle('light-group', cfgLight);
     map.setConfigProperty('basemap', 'lightPreset', cfgLight);
+});
+
+document.getElementById('trail-group').addEventListener('click', e => {
+    const btn = e.target.closest('.tog');
+    if (!btn) return;
+    cfgTrail = btn.dataset.value;
+    activateToggle('trail-group', cfgTrail);
+    updateTrailSource(null);  // redraw immediately with new style
+});
+
+document.getElementById('poi-group').addEventListener('click', e => {
+    const btn = e.target.closest('.tog');
+    if (!btn) return;
+    cfgPOI = btn.dataset.value;
+    activateToggle('poi-group', cfgPOI);
+    const show = cfgPOI === 'show';
+    map.setConfigProperty('basemap', 'showPointOfInterestLabels', show);
+});
+
+document.getElementById('head-group').addEventListener('click', e => {
+    const btn = e.target.closest('.tog');
+    if (!btn) return;
+    cfgHead = btn.dataset.value;
+    activateToggle('head-group', cfgHead);
+    // Clear head markers immediately when switching to basic
+    if (cfgHead === 'basic' && map.getSource('tram-heads'))
+        map.getSource('tram-heads').setData({ type: 'FeatureCollection', features: [] });
 });
 </script>
 </body>
