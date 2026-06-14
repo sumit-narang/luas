@@ -333,9 +333,20 @@ function getTramMap(frameData) {
 }
 
 function buildFrames(data) {
-    const grouped = {};
-    data.forEach(row => { const t = row.observed_at; if (!grouped[t]) grouped[t] = []; grouped[t].push(row); });
-    return Object.entries(grouped).sort((a, b) => a[0].localeCompare(b[0]));
+    // Sort by timestamp, then merge observations within 20s of each frame's anchor
+    // — the scraper polls Red and Green separately so their timestamps are offset
+    const sorted = [...data].sort((a, b) => a.observed_at.localeCompare(b.observed_at));
+    const frames = [];
+    for (const row of sorted) {
+        const t = new Date(row.observed_at).getTime();
+        const last = frames[frames.length - 1];
+        if (last && t - new Date(last[0]).getTime() <= 20000) {
+            last[1].push(row);
+        } else {
+            frames.push([row.observed_at, [row]]);
+        }
+    }
+    return frames;
 }
 
 // ── Trail + tram rendering ─────────────────────────────────────────────
