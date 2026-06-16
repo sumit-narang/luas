@@ -6,6 +6,7 @@
     <title>Luas 3D Replay</title>
     <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet">
     <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+    <script src="three.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: -apple-system, sans-serif; }
@@ -69,7 +70,18 @@
             border-radius: 12px; padding: 14px 18px; min-width: 340px;
             box-shadow: 0 4px 24px rgba(0,0,0,0.12);
         }
-        .config-title { font-size: 13px; font-weight: 700; color: #222; margin-bottom: 12px; }
+        .config-title {
+            font-size: 13px; font-weight: 700; color: #222;
+            display: flex; align-items: center; justify-content: space-between;
+            cursor: pointer; user-select: none; margin-bottom: 0;
+        }
+        .config-title .chevron {
+            font-size: 10px; color: #aaa; transition: transform 0.2s;
+            display: inline-block;
+        }
+        .config-title .chevron.open { transform: rotate(180deg); }
+        #config-body { overflow: hidden; transition: max-height 0.25s ease, margin-top 0.25s ease; max-height: 0; margin-top: 0; }
+        #config-body.open { max-height: 400px; margin-top: 12px; }
         .config-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
         .config-row:last-child { margin-bottom: 0; }
         .config-label { font-size: 12px; color: #555; min-width: 90px; }
@@ -115,13 +127,17 @@
 
 <div id="legend">
     <div class="legend-item"><div class="swatch" style="background:#ff2020"></div> Red Line</div>
-    <div class="legend-item"><div class="swatch" style="background:#00ff55"></div> Green Line</div>
+    <div class="legend-item"><div class="swatch" style="background:#16A34A"></div> Green Line</div>
 </div>
 
 <div id="hint">Drag · Ctrl+drag to tilt · Scroll to zoom</div>
 
 <div id="config-panel">
-    <div class="config-title">Preview configurations</div>
+    <div class="config-title" id="config-toggle">
+        Preview configurations
+        <span class="chevron" id="config-chevron">▼</span>
+    </div>
+    <div id="config-body">
     <div class="config-row">
         <span class="config-label">Basemap</span>
         <div class="toggle-group" id="basemap-group">
@@ -133,24 +149,17 @@
         <span class="config-label">Color themes</span>
         <div class="toggle-group" id="theme-group">
             <button class="tog" data-value="default">Default</button>
-            <button class="tog active" data-value="faded">Faded</button>
-            <button class="tog" data-value="monochrome">Monochrome</button>
+            <button class="tog" data-value="faded">Faded</button>
+            <button class="tog active" data-value="monochrome">Monochrome</button>
         </div>
     </div>
     <div class="config-row">
         <span class="config-label">Light presets</span>
         <div class="toggle-group" id="light-group">
             <button class="tog" data-value="dawn">Dawn</button>
-            <button class="tog" data-value="day">Day</button>
-            <button class="tog active" data-value="dusk">Dusk</button>
+            <button class="tog active" data-value="day">Day</button>
+            <button class="tog" data-value="dusk">Dusk</button>
             <button class="tog" data-value="night">Night</button>
-        </div>
-    </div>
-    <div class="config-row">
-        <span class="config-label">Trail style</span>
-        <div class="toggle-group" id="trail-group">
-            <button class="tog active" data-value="uniform">Uniform</button>
-            <button class="tog" data-value="comet">Comet ✦</button>
         </div>
     </div>
     <div class="config-row">
@@ -163,10 +172,21 @@
     <div class="config-row">
         <span class="config-label">Tram head</span>
         <div class="toggle-group" id="head-group">
-            <button class="tog active" data-value="basic">Basic</button>
-            <button class="tog" data-value="distinct">Distinct ◉</button>
+            <button class="tog" data-value="basic">Basic</button>
+            <button class="tog active" data-value="distinct">Distinct ◉</button>
         </div>
     </div>
+    <div class="config-row">
+        <span class="config-label">Stop labels</span>
+        <div class="toggle-group" id="stop-style-group">
+            <button class="tog" data-value="A">A · Pill</button>
+            <button class="tog" data-value="B">B · Card</button>
+            <button class="tog" data-value="C">C · Map</button>
+            <button class="tog" data-value="D">D · Dots</button>
+            <button class="tog active" data-value="DC">D+C</button>
+        </div>
+    </div>
+    </div><!-- /config-body -->
 </div>
 
 <script>
@@ -177,11 +197,12 @@ mapboxgl.accessToken = MAPBOX_TOKEN;
 
 // ── Config state ───────────────────────────────────────────────────────
 let cfgBasemap = 'standard';
-let cfgTheme   = 'faded';
-let cfgLight   = 'dusk';
-let cfgTrail   = 'uniform';   // 'uniform' | 'comet'
-let cfgPOI     = 'show';      // 'show' | 'hide'
-let cfgHead    = 'basic';     // 'basic' | 'distinct'
+let cfgTheme   = 'monochrome';
+let cfgLight   = 'day';
+let isStandardStyle = true;  // false when light-v11 is active for monochrome
+let cfgPOI       = 'show';      // 'show' | 'hide'
+let cfgHead      = 'distinct';  // 'basic' | 'distinct'
+let cfgStopStyle = 'DC';        // A | B | C | D | DC
 let stopsCache      = null;
 let routesCache     = null;
 let snappedCache    = null;
@@ -205,9 +226,12 @@ async function apiFetch(path) {
 }
 
 // ── Map ────────────────────────────────────────────────────────────────
+const _initialStyle = cfgTheme === 'monochrome'
+    ? (isStandardStyle = false, 'mapbox://styles/mapbox/light-v11')
+    : 'mapbox://styles/mapbox/standard';
 const map = new mapboxgl.Map({
     container: 'map',
-    style: 'mapbox://styles/mapbox/standard',
+    style: _initialStyle,
     center: [-6.2750, 53.3420],
     zoom: 12.2,
     pitch: 58,
@@ -227,8 +251,6 @@ function setProgress(pct, text) {
 let stops = [], frames = [], frameIndex = 0;
 let playing = false, playInterval = null, animFrameId = null;
 let playMs = 400, playDur = 280;   // interval and animation duration (ms)
-const tramHistory  = {};  // key → stop_abv[]
-const TRAIL_STOPS  = 5;   // stop positions to remember per tram
 
 function lerp(a, b, t) { return a + (b - a) * t; }
 function easeInOut(t) { return t < 0.5 ? 2*t*t : -1+(4-2*t)*t; }
@@ -304,18 +326,174 @@ function buildAllStopProjections() {
     });
 }
 
-// Returns a short LineString centered at (lon,lat) facing from→to direction
-function buildTramSegment(lon, lat, fromLon, fromLat) {
-    const dLon = lon - fromLon, dLat = lat - fromLat;
-    const dist = Math.sqrt(dLon * dLon + dLat * dLat);
-    const HALF = 0.0004; // ~44m half-length
-    if (dist < 1e-8) return [[lon - HALF, lat], [lon + HALF, lat]];
-    const ux = dLon / dist, uy = dLat / dist;
-    return [
-        [lon - ux * HALF, lat - uy * HALF],
-        [lon + ux * HALF, lat + uy * HALF]
-    ];
+// ── Three.js 3D tram custom layer ─────────────────────────────────────
+// The scene uses X=east, Z=south (metres from Dublin centre), Y=up.
+// Mapbox's render matrix transforms Mercator coords → clip space.
+// We combine it with a world→Mercator matrix so Three.js objects placed
+// in metre-offset coordinates appear at the correct geographic positions.
+const _CTR_LON = -6.275, _CTR_LAT = 53.342;
+let _mcRef = null; // MercatorCoordinate of scene origin
+
+// One articulated car (8 m long). isFirst = true adds a nose cap at the +X end.
+function makeTramSegment(lineHex, isFirst) {
+    const g = new THREE.Group();
+    const box = (w, h, d, hex, x, y, z) => {
+        const m = new THREE.Mesh(
+            new THREE.BoxGeometry(w, h, d),
+            new THREE.MeshLambertMaterial({ color: hex })
+        );
+        m.position.set(x, y, z);
+        g.add(m);
+    };
+    box(8,   3.2,  2.8,  0xCDD2D5,  0,    1.6,  0);  // body
+    box(6.4, 1.4,  2.82, 0x1E2830,  0,    2.4,  0);  // windows
+    box(8,   0.7,  2.82, lineHex,   0,    0.7,  0);  // stripe
+    box(7,   0.4,  2.6,  0xE8ECEE,  0,    3.2,  0);  // roof
+    if (isFirst) box(0.8, 3.2, 2.8, 0xA8ADB0, 4.4, 1.6, 0); // nose
+    return g;
 }
+
+const tramLayer = {
+    id: 'tram-3d',
+    type: 'custom',
+    renderingMode: '3d',
+    _objs: new Map(),    // key → [seg0..seg4]
+    _scene: null, _camera: null, _renderer: null, _map: null,
+    _active: true,
+
+    onAdd(map, gl) {
+        this._map = map;
+        this._camera = new THREE.Camera();
+        this._scene  = new THREE.Scene();
+
+        // Lighting: warm sun from upper-right + cool fill from below
+        this._scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+        const sun = new THREE.DirectionalLight(0xfff4e0, 1.6);
+        sun.position.set(0.4, 1, 0.6).normalize();
+        this._scene.add(sun);
+        const fill = new THREE.DirectionalLight(0xc0d8ff, 0.35);
+        fill.position.set(-0.4, -0.5, -0.5).normalize();
+        this._scene.add(fill);
+
+        this._renderer = new THREE.WebGLRenderer({
+            canvas: map.getCanvas(), context: gl, antialias: true
+        });
+        this._renderer.autoClear = false;
+
+        _mcRef = mapboxgl.MercatorCoordinate.fromLngLat([_CTR_LON, _CTR_LAT], 0);
+    },
+
+    onRemove() {
+        for (const segs of this._objs.values())
+            segs.forEach(s => { this._scene?.remove(s); s.traverse(c => { c.geometry?.dispose(); c.material?.dispose(); }); });
+        this._renderer?.dispose();
+        this._scene = this._camera = this._renderer = null;
+        this._objs.clear();
+    },
+
+    // Scale so each 8 m car appears ~10 px long on screen
+    _scaleAt(zoom) {
+        const mpp = (156543.03392 * Math.cos(_CTR_LAT * Math.PI / 180)) / Math.pow(2, zoom);
+        return (10 * mpp) / 8;
+    },
+
+
+    updateTrams(tramPositions) {
+        if (!this._scene || !this._active) return;
+        const s   = this._scaleAt(this._map.getZoom());
+        const cos = Math.cos(_CTR_LAT * Math.PI / 180);
+        const N   = 5;      // number of articulated car segments
+        const GAP = 9;      // metres between segment centres (8 m car + 1 m gap)
+
+        // Remove trams that left the frame
+        for (const [key, segs] of this._objs) {
+            if (!tramPositions.has(key)) {
+                segs.forEach(seg => {
+                    this._scene.remove(seg);
+                    seg.traverse(c => { c.geometry?.dispose(); c.material?.dispose(); });
+                });
+                this._objs.delete(key);
+            }
+        }
+
+        for (const [key, { lon, lat, aheadLon, aheadLat, color, routeKey, routeDist, forward }] of tramPositions) {
+            const lineHex = color === '#dd1122' ? 0xdd1122 : 0x16A34A;
+
+            if (!this._objs.has(key)) {
+                const segs = Array.from({ length: N }, (_, i) => {
+                    const seg = makeTramSegment(lineHex, i === 0);
+                    this._scene.add(seg);
+                    return seg;
+                });
+                this._objs.set(key, segs);
+            }
+            const segs = this._objs.get(key);
+            const idx  = routeKey ? routeIndexes[routeKey] : null;
+
+            for (let i = 0; i < N; i++) {
+                let sLon, sLat, aLon, aLat;
+
+                if (idx && routeDist != null) {
+                    // Walk i segments backward from the front along the snapped route
+                    const d  = Math.max(0, Math.min(idx.totalDist, routeDist + (forward ? -i : i) * GAP));
+                    const dA = Math.max(0, Math.min(idx.totalDist, d + (forward ? 4 : -4)));
+                    [sLon, sLat] = posAtDist(d,  idx);
+                    [aLon, aLat] = posAtDist(dA, idx);
+                } else {
+                    // Fallback: space segments in straight line using aheadLon/Lat
+                    const dx = aheadLon - lon, dy = aheadLat - lat;
+                    const len = Math.hypot(dx, dy) || 1e-9;
+                    const deg = GAP * i / (111320 * cos);
+                    sLon = lon - (dx / len) * deg;
+                    sLat = lat - (dy / len) * deg * cos;
+                    aLon = aheadLon; aLat = aheadLat;
+                }
+
+                segs[i].position.set(
+                    (sLon - _CTR_LON) * cos * 111320,
+                    0,
+                    -(sLat - _CTR_LAT) * 111320
+                );
+                const bearing = Math.atan2(aLon - sLon, aLat - sLat);
+                segs[i].rotation.y = Math.PI / 2 - bearing;
+                segs[i].scale.setScalar(s);
+            }
+        }
+        this._map.triggerRepaint();
+    },
+
+    setVisible(v) {
+        this._active = v;
+        if (this._scene) this._scene.visible = v;
+        this._map?.triggerRepaint();
+    },
+
+    render(gl, args) {
+        if (!_mcRef || !this._active || !this._renderer) return;
+
+        // Mapbox v3 passes args object; older API passed the matrix array directly
+        const mat = args?.projectionMatrix
+            ?? args?.defaultProjectionData?.mainMatrix
+            ?? (Array.isArray(args) || args instanceof Float32Array ? args : null);
+        if (!mat) return;
+
+        // l converts Three.js scene metres → Mapbox Mercator coordinates:
+        //   translate to centre, scale metres→Mercator, flip Y (Mercator Y grows south,
+        //   Three.js Y grows up), then tilt axes with RotationX so Three.js Y=up maps
+        //   to Mercator Z=altitude.
+        const ms = _mcRef.meterInMercatorCoordinateUnits();
+        const l  = new THREE.Matrix4()
+            .makeTranslation(_mcRef.x, _mcRef.y, _mcRef.z)
+            .scale(new THREE.Vector3(ms, -ms, ms))
+            .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2));
+
+        this._camera.projectionMatrix = new THREE.Matrix4().fromArray(mat).multiply(l);
+        this._renderer.resetState();
+        this._renderer.render(this._scene, this._camera);
+        this._map.triggerRepaint();
+    }
+};
+
 
 function getTramMap(frameData) {
     const trams = new Map();
@@ -349,81 +527,84 @@ function buildFrames(data) {
     return frames;
 }
 
-// ── Trail + tram rendering ─────────────────────────────────────────────
 function renderFrame(frameData, prevFrameData, duration = 180) {
     if (animFrameId) cancelAnimationFrame(animFrameId);
     const toMap = getTramMap(frameData);
     const fromMap = prevFrameData ? getTramMap(prevFrameData) : null;
 
-    // Update stop history (for route-following trails)
+    // Pre-compute travel direction (forward = increasing routeDist along route index).
+    // With fromMap: infer from routeDist change.
+    // First appearance: lookahead up to 4 frames to find next occurrence.
+    const tramDirs = new Map();
     for (const [key, tram] of toMap) {
-        if (!tramHistory[key]) tramHistory[key] = [];
-        const h = tramHistory[key];
-        if (h[h.length - 1] !== tram.stop_abv) {
-            const newProj = stopRouteProj[tram.stop_abv];
-            if (h.length > 0 && newProj) {
-                const lastProj = stopRouteProj[h[h.length - 1]];
-                // If stop jump is too large (> 2500m ≈ 3 stop spacings), a different
-                // physical tram took over this key — reset history to avoid diagonal trails
-                if (lastProj && (lastProj.routeKey !== newProj.routeKey ||
-                        Math.abs(newProj.dist - lastProj.dist) > 2500)) {
-                    tramHistory[key] = [tram.stop_abv];
-                    continue;
+        if (fromMap?.has(key)) {
+            tramDirs.set(key, tram.routeDist >= fromMap.get(key).routeDist);
+        } else {
+            let forward = true;
+            for (let fi = frameIndex + 1; fi < Math.min(frameIndex + 4, frames.length); fi++) {
+                const nextMap = getTramMap(frames[fi]);
+                if (nextMap.has(key)) {
+                    forward = nextMap.get(key).routeDist >= tram.routeDist;
+                    break;
                 }
             }
-            h.push(tram.stop_abv);
-            if (h.length > TRAIL_STOPS) h.shift();
+            tramDirs.set(key, forward);
         }
     }
-    for (const key of Object.keys(tramHistory)) { if (!toMap.has(key)) delete tramHistory[key]; }
-    updateTrailSource(toMap);
 
     const start = performance.now();
     function tick(now) {
         const raw = Math.min((now - start) / duration, 1);
         const t = easeInOut(raw);
 
-        const features = [];
+        const tramPositions = new Map();
         for (const [key, tram] of toMap) {
-            let lon, lat, fromLon, fromLat;
+            let lon, lat, aheadLon, aheadLat, currentDist;
+            const idx     = routeIndexes[tram.routeKey];
+            const proj    = stopRouteProj[tram.stop_abv];
+            const forward = tramDirs.get(key) ?? true;
+            const step    = forward ? 40 : -40;
+
             if (fromMap?.has(key)) {
                 const from = fromMap.get(key);
-                const idx = routeIndexes[tram.routeKey];
-                if (idx && from.routeKey === tram.routeKey) {
-                    // Interpolate along route geometry
-                    const d    = lerp(from.routeDist, tram.routeDist, t);
-                    const dPrv = lerp(from.routeDist, tram.routeDist, Math.max(0, t - 0.05));
-                    [lon, lat]         = posAtDist(d, idx);
-                    [fromLon, fromLat] = posAtDist(dPrv, idx);
+                const fromIdx = routeIndexes[from.routeKey];
+                if (idx && fromIdx && from.routeKey === tram.routeKey) {
+                    const d = lerp(from.routeDist, tram.routeDist, t);
+                    currentDist = d;
+                    [lon, lat] = posAtDist(d, idx);
+                    const aD = Math.max(0, Math.min(idx.totalDist, d + step));
+                    [aheadLon, aheadLat] = posAtDist(aD, idx);
                 } else {
-                    // Different branches / no index — straight-line fallback
-                    lon = lerp(from.stop_lon, tram.stop_lon, t);
-                    lat = lerp(from.stop_lat, tram.stop_lat, t);
-                    fromLon = from.stop_lon; fromLat = from.stop_lat;
+                    currentDist = proj?.dist ?? 0;
+                    const fromProj = stopRouteProj[from.stop_abv];
+                    const [toLon, toLat] = (idx && proj) ? posAtDist(proj.dist, idx) : [tram.stop_lon, tram.stop_lat];
+                    const [frLon, frLat] = (fromIdx && fromProj) ? posAtDist(fromProj.dist, fromIdx) : [from.stop_lon, from.stop_lat];
+                    lon = lerp(frLon, toLon, t);
+                    lat = lerp(frLat, toLat, t);
+                    aheadLon = lerp(frLon, toLon, Math.min(1, t + 0.1));
+                    aheadLat = lerp(frLat, toLat, Math.min(1, t + 0.1));
                 }
             } else {
-                lon = tram.stop_lon; lat = tram.stop_lat;
-                fromLon = lon - 0.0001; fromLat = lat;
+                if (idx && proj) {
+                    currentDist = proj.dist;
+                    [lon, lat] = posAtDist(proj.dist, idx);
+                    const aD = Math.max(0, Math.min(idx.totalDist, proj.dist + step));
+                    [aheadLon, aheadLat] = posAtDist(aD, idx);
+                } else {
+                    currentDist = 0;
+                    lon = tram.stop_lon; lat = tram.stop_lat;
+                    aheadLon = lon + 0.001; aheadLat = lat;
+                }
             }
-            features.push({
-                type: 'Feature',
-                geometry: { type: 'LineString', coordinates: buildTramSegment(lon, lat, fromLon, fromLat) },
-                properties: { color: tram.line === 'Red' ? '#ff2020' : '#00ff55' }
+            tramPositions.set(key, {
+                lon, lat, aheadLon, aheadLat,
+                color: tram.line === 'Red' ? '#dd1122' : '#16A34A',
+                routeKey: tram.routeKey,
+                routeDist: currentDist,
+                forward
             });
         }
-        map.getSource('trams').setData({ type: 'FeatureCollection', features });
-
-        // Distinct head: bright dot at current tram position
-        if (map.getSource('tram-heads')) {
-            const headFeatures = cfgHead === 'distinct'
-                ? features.map(f => {
-                    const mid = f.geometry.coordinates[Math.floor(f.geometry.coordinates.length / 2)];
-                    return { type: 'Feature', geometry: { type: 'Point', coordinates: mid },
-                             properties: { color: f.properties.color } };
-                })
-                : [];
-            map.getSource('tram-heads').setData({ type: 'FeatureCollection', features: headFeatures });
-        }
+        tramLayer.updateTrams(tramPositions);
 
         document.getElementById('stats').textContent = `Trams: ${toMap.size}`;
         document.getElementById('time-display').textContent =
@@ -434,58 +615,15 @@ function renderFrame(frameData, prevFrameData, duration = 180) {
     animFrameId = requestAnimationFrame(tick);
 }
 
-function buildTrailCoords(abvs) {
-    const projs = abvs.map(a => stopRouteProj[a]).filter(Boolean);
-    if (projs.length < 2) return [];
-    const all = [];
-    for (let i = 0; i < projs.length - 1; i++) {
-        if (projs[i].routeKey !== projs[i+1].routeKey) { all.length = 0; continue; }
-        const idx = routeIndexes[projs[i].routeKey];
-        if (!idx) continue;
-        const seg = routeSubsegment(projs[i].dist, projs[i+1].dist, idx);
-        if (all.length === 0) all.push(...seg); else all.push(...seg.slice(1));
-    }
-    return all;
-}
-
-function updateTrailSource(toMap) {
-    if (!map.getSource('trails')) return;
-    const features = [];
-    for (const [key, abvs] of Object.entries(tramHistory)) {
-        if (abvs.length < 2) continue;
-        const coords = buildTrailCoords(abvs);
-        if (coords.length < 2) continue;
-        const color = toMap?.get(key)?.line === 'Red' ? '#ff2020' : '#00ff55';
-
-        if (cfgTrail === 'comet') {
-            // Split into 4 segments; opacity increases toward the front (newest end)
-            const N = 4;
-            const len = coords.length;
-            for (let i = 0; i < N; i++) {
-                const s = Math.floor((i / N) * (len - 1));
-                const e = Math.ceil(((i + 1) / N) * (len - 1));
-                const seg = coords.slice(s, Math.min(e + 1, len));
-                if (seg.length < 2) continue;
-                features.push({ type: 'Feature',
-                    geometry: { type: 'LineString', coordinates: seg },
-                    properties: { color, opacity: (i + 1) / N }
-                });
-            }
-        } else {
-            features.push({ type: 'Feature',
-                geometry: { type: 'LineString', coordinates: coords },
-                properties: { color, opacity: 1 }
-            });
-        }
-    }
-    map.getSource('trails').setData({ type: 'FeatureCollection', features });
-}
 
 // ── Map ready ──────────────────────────────────────────────────────────
 map.on('style.load', async () => {
 
-    map.setConfigProperty('basemap', 'colorTheme', cfgTheme);
-    map.setConfigProperty('basemap', 'lightPreset', cfgLight);
+    if (isStandardStyle) {
+        map.setConfigProperty('basemap', 'colorTheme',
+            cfgTheme === 'monochrome' ? 'default' : cfgTheme);
+        map.setConfigProperty('basemap', 'lightPreset', cfgLight);
+    }
 
     setProgress(20, 'Fetching stops…');
     if (!stopsCache)   stopsCache   = await apiFetch('/api/stops');
@@ -503,17 +641,11 @@ map.on('style.load', async () => {
     const redFeature   = routesCache.features.find(f => f.properties.line === 'Red');
     const greenFeature = routesCache.features.find(f => f.properties.line === 'Green');
 
-    for (const [id, feature, color, glow] of [
-        ['red-route',   redFeature,   '#ff2020', '#ff6060'],
-        ['green-route', greenFeature, '#00ff55', '#66ffaa']
+    for (const [id, feature, color] of [
+        ['red-route',   redFeature,   '#ff2020'],
+        ['green-route', greenFeature, '#16A34A']
     ]) {
         map.addSource(id, { type: 'geojson', data: feature });
-        map.addLayer({ id: `${id}-glow`, type: 'line', source: id,
-            slot: 'top',
-            layout: { 'line-cap': 'round', 'line-join': 'round' },
-            paint: { 'line-color': glow, 'line-width': 12, 'line-opacity': 0.4, 'line-blur': 4,
-                     'line-emissive-strength': 1 }
-        });
         map.addLayer({ id: `${id}-core`, type: 'line', source: id,
             slot: 'top',
             layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -525,14 +657,45 @@ map.on('style.load', async () => {
     // ── Stops ──────────────────────────────────────────────────────────
     const stopGeoJSON = {
         type: 'FeatureCollection',
-        features: stops.map(s => ({
-            type: 'Feature',
-            geometry: { type: 'Point', coordinates: [s.longitude, s.latitude] },
-            properties: {
-                color: s.line === 'Red' ? '#ff2020' : '#00ff55',
-                name: s.stop_name
+        features: stops.map(s => {
+            const proj = stopRouteProj[s.stop_abv];
+            const idx  = proj ? routeIndexes[proj.routeKey] : null;
+            const [lon, lat] = (proj && idx) ? posAtDist(proj.dist, idx) : [s.longitude, s.latitude];
+
+            // Compute label offset perpendicular (right-hand side) to the track direction.
+            // This guarantees the label never crosses the track regardless of zoom/pan.
+            const EM = 1.1;
+            let offset_x = EM, offset_y = 0, anchor = 'left';
+            if (proj && idx) {
+                const d  = proj.dist;
+                const aD = Math.min(d + 40, idx.totalDist);
+                const bD = Math.max(d - 40, 0);
+                const [aLon, aLat] = posAtDist(aD, idx);
+                const [bLon, bLat] = posAtDist(bD, idx);
+                const cos = Math.cos(lat * Math.PI / 180);
+                const dx = (aLon - bLon) * cos; // east component of travel direction
+                const dy = aLat - bLat;          // north component of travel direction
+                const len = Math.hypot(dx, dy) || 1;
+                // Right-hand perpendicular: rotate travel vector 90° clockwise
+                // perp_east = dy/len,  perp_north = -dx/len
+                // Map to Mapbox text-offset [screen_right, screen_down]:
+                //   screen_right = perp_east,  screen_down = -perp_north = dx/len
+                offset_x = +(dy / len * EM).toFixed(3);
+                offset_y = +(dx / len * EM).toFixed(3);
+                // Anchor: the text edge that faces the track
+                if (Math.abs(offset_x) >= Math.abs(offset_y)) {
+                    anchor = offset_x > 0 ? 'left' : 'right';
+                } else {
+                    anchor = offset_y > 0 ? 'top' : 'bottom';
+                }
             }
-        }))
+
+            return {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [lon, lat] },
+                properties: { color: s.line === 'Red' ? '#ff2020' : '#16A34A', name: s.stop_name, offset_x, offset_y, anchor }
+            };
+        })
     };
     map.addSource('stops', { type: 'geojson', data: stopGeoJSON });
     map.addLayer({ id: 'stops-dot', type: 'circle', source: 'stops',
@@ -550,9 +713,9 @@ map.on('style.load', async () => {
         layout: {
             'text-field': ['get', 'name'],
             'text-size': ['interpolate', ['linear'], ['zoom'], 11, 10, 13, 13, 15, 15],
-            'text-offset': [0.6, 0],
-            'text-anchor': 'left',
-            'text-max-width': 8,
+            'text-anchor': ['get', 'anchor'],
+            'text-offset': [['get', 'offset_x'], ['get', 'offset_y']],
+            'text-max-width': 10,
             'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
             'text-allow-overlap': false,
             'text-ignore-placement': false
@@ -564,53 +727,11 @@ map.on('style.load', async () => {
         }
     });
 
-    // ── Tram trails ────────────────────────────────────────────────────
-    map.addSource('trails', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-    map.addLayer({ id: 'trails-glow', type: 'line', source: 'trails',
-        slot: 'top',
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': ['get', 'color'],
-                 'line-width': 14,
-                 'line-opacity': ['*', ['get', 'opacity'], 0.25],
-                 'line-blur': 8,
-                 'line-emissive-strength': 1 }
-    });
-    map.addLayer({ id: 'trails-core', type: 'line', source: 'trails',
-        slot: 'top',
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': ['get', 'color'],
-                 'line-width': 4,
-                 'line-opacity': ['*', ['get', 'opacity'], 0.9],
-                 'line-emissive-strength': 1 }
-    });
+    applyStopStyle(cfgStopStyle);
 
-    // ── Tram head highlight (distinct mode) ───────────────────────────
-    map.addSource('tram-heads', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-    map.addLayer({ id: 'tram-head-glow', type: 'circle', source: 'tram-heads',
-        slot: 'top',
-        paint: { 'circle-radius': 18, 'circle-color': ['get', 'color'],
-                 'circle-opacity': 0.35, 'circle-blur': 0.5, 'circle-emissive-strength': 1 }
-    });
-    map.addLayer({ id: 'tram-head-core', type: 'circle', source: 'tram-heads',
-        slot: 'top',
-        paint: { 'circle-radius': 5, 'circle-color': '#ffffff',
-                 'circle-opacity': 1, 'circle-emissive-strength': 1 }
-    });
-
-    // ── Trams (oriented rectangle segments) ───────────────────────────
-    map.addSource('trams', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-    map.addLayer({ id: 'trams-glow', type: 'line', source: 'trams',
-        slot: 'top',
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': ['get', 'color'], 'line-width': 36, 'line-opacity': 0.35, 'line-blur': 8,
-                 'line-emissive-strength': 1 }
-    });
-    map.addLayer({ id: 'trams-core', type: 'line', source: 'trams',
-        slot: 'top',
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': ['get', 'color'], 'line-width': 16, 'line-opacity': 1,
-                 'line-emissive-strength': 1 }
-    });
+    // ── Three.js 3D tram layer ───────────────────────────────────────
+    map.addLayer(tramLayer);
+    tramLayer.setVisible(cfgHead === 'distinct');
 
     setProgress(80, 'Loading dates…');
     await loadDates();
@@ -621,6 +742,12 @@ map.on('style.load', async () => {
         document.getElementById('loading-text').style.display = 'none';
     }, 800);
     document.getElementById('load-btn').disabled = false;
+
+    // Restore current frame after style reload (e.g. switching to monochrome)
+    if (frames.length > 0) {
+        renderFrame(frames[frameIndex], frameIndex > 0 ? frames[frameIndex - 1] : null, 0);
+    }
+
 });
 
 // ── UI ─────────────────────────────────────────────────────────────────
@@ -642,8 +769,6 @@ document.getElementById('load-btn').addEventListener('click', async () => {
     const hour = document.getElementById('hour-select').value;
     const btn = document.getElementById('load-btn');
     btn.disabled = true; btn.textContent = 'Loading…';
-    Object.keys(tramHistory).forEach(k => delete tramHistory[k]);
-    updateTrailSource(null);
 
     const data = await apiFetch(`/api/replay?date=${date}&hour=${hour}`);
     frames = buildFrames(data);
@@ -695,6 +820,63 @@ document.getElementById('speed-group').addEventListener('click', e => {
     if (playing) { clearInterval(playInterval); startPlayback(); }
 });
 
+// ── Stop label styles ──────────────────────────────────────────────────
+const STOP_LABEL_STYLES = {
+    A: {  // Colored pill badges: white text on line-color halo blob
+        dot:   { 'circle-radius': 6, 'circle-color': '#fff', 'circle-stroke-width': 3, 'circle-stroke-color': ['get','color'] },
+        field: ['get','name'],
+        layout: { 'text-size': ['interpolate',['linear'],['zoom'],11,11,14,14], 'text-font': ['DIN Pro Bold','Arial Unicode MS Bold'], 'text-max-width': 10 },
+        paint:  { 'text-color': '#fff', 'text-halo-color': ['get','color'], 'text-halo-width': 4 }
+    },
+    B: {  // Floating white card: dark text on opaque white halo
+        dot:   { 'circle-radius': 5, 'circle-color': '#fff', 'circle-stroke-width': 2.5, 'circle-stroke-color': ['get','color'] },
+        field: ['get','name'],
+        layout: { 'text-size': ['interpolate',['linear'],['zoom'],11,11,14,13], 'text-font': ['DIN Pro Medium','Arial Unicode MS Regular'], 'text-max-width': 10 },
+        paint:  { 'text-color': '#111', 'text-halo-color': 'rgba(255,255,255,0.97)', 'text-halo-width': 4 }
+    },
+    C: {  // Cartographic: line-colored text, no halo or background
+        dot:   { 'circle-radius': 4, 'circle-color': ['get','color'], 'circle-stroke-width': 1.5, 'circle-stroke-color': '#fff' },
+        field: ['get','name'],
+        layout: { 'text-size': ['interpolate',['linear'],['zoom'],11,10,14,13], 'text-font': ['DIN Pro Medium','Arial Unicode MS Regular'], 'text-max-width': 10 },
+        paint:  { 'text-color': ['get','color'], 'text-halo-width': 0, 'text-halo-color': 'rgba(0,0,0,0)' }
+    },
+    D: {  // Big dots only — labels appear at zoom ≥ 13
+        dot:   { 'circle-radius': ['interpolate',['linear'],['zoom'],10,4,13,8,15,10], 'circle-color': '#fff', 'circle-stroke-width': 3, 'circle-stroke-color': ['get','color'] },
+        field: ['step',['zoom'],'',13,['get','name']],
+        layout: { 'text-size': ['interpolate',['linear'],['zoom'],13,11,15,14], 'text-font': ['DIN Pro Medium','Arial Unicode MS Regular'], 'text-max-width': 10 },
+        paint:  { 'text-color': '#111', 'text-halo-color': 'rgba(255,255,255,0.97)', 'text-halo-width': 3 }
+    },
+    DC: { // D dots + C cartographic labels at zoom ≥ 13
+        dot:   { 'circle-radius': ['interpolate',['linear'],['zoom'],10,4,13,8,15,10], 'circle-color': '#fff', 'circle-stroke-width': 3, 'circle-stroke-color': ['get','color'] },
+        field: ['step',['zoom'],'',13,['get','name']],
+        layout: { 'text-size': ['interpolate',['linear'],['zoom'],13,11,15,14], 'text-font': ['DIN Pro Medium','Arial Unicode MS Regular'], 'text-max-width': 10 },
+        paint:  { 'text-color': '#1a1a1a', 'text-halo-color': ['get','color'], 'text-halo-width': 2 }
+    }
+};
+
+function applyStopStyle(key) {
+    if (!map.getLayer('stops-dot') || !map.getLayer('stop-labels')) return;
+    const s = STOP_LABEL_STYLES[key];
+    Object.entries(s.dot).forEach(([p, v]) => map.setPaintProperty('stops-dot', p, v));
+    // Enforce data-driven perpendicular placement — clears any variable-anchor from prior state
+    map.setLayoutProperty('stop-labels', 'text-variable-anchor', null);
+    map.setLayoutProperty('stop-labels', 'text-radial-offset', null);
+    map.setLayoutProperty('stop-labels', 'text-anchor', ['get', 'anchor']);
+    map.setLayoutProperty('stop-labels', 'text-offset', [['get', 'offset_x'], ['get', 'offset_y']]);
+    map.setLayoutProperty('stop-labels', 'text-field', s.field);
+    Object.entries(s.layout).forEach(([p, v]) => map.setLayoutProperty('stop-labels', p, v));
+    Object.entries(s.paint).forEach(([p, v]) => map.setPaintProperty('stop-labels', p, v));
+    activateToggle('stop-style-group', key);
+}
+
+// ── Config panel collapse ─────────────────────────────────────────────
+document.getElementById('config-toggle').addEventListener('click', () => {
+    const body = document.getElementById('config-body');
+    const chevron = document.getElementById('config-chevron');
+    const open = body.classList.toggle('open');
+    chevron.classList.toggle('open', open);
+});
+
 // ── Config panel ───────────────────────────────────────────────────────
 function activateToggle(groupId, value) {
     document.querySelectorAll(`#${groupId} .tog`).forEach(b => {
@@ -718,7 +900,14 @@ document.getElementById('theme-group').addEventListener('click', e => {
     if (!btn) return;
     cfgTheme = btn.dataset.value;
     activateToggle('theme-group', cfgTheme);
-    map.setConfigProperty('basemap', 'colorTheme', cfgTheme);
+    if (cfgTheme === 'monochrome') {
+        // Switch to light-v11 (naturally near-monochrome) so trails stay in color
+        if (isStandardStyle) { isStandardStyle = false; map.setStyle('mapbox://styles/mapbox/light-v11'); }
+    } else {
+        // Switch back to Standard if we were on light-v11
+        if (!isStandardStyle) { isStandardStyle = true; map.setStyle('mapbox://styles/mapbox/standard'); }
+        else map.setConfigProperty('basemap', 'colorTheme', cfgTheme);
+    }
 });
 
 document.getElementById('light-group').addEventListener('click', e => {
@@ -729,13 +918,6 @@ document.getElementById('light-group').addEventListener('click', e => {
     map.setConfigProperty('basemap', 'lightPreset', cfgLight);
 });
 
-document.getElementById('trail-group').addEventListener('click', e => {
-    const btn = e.target.closest('.tog');
-    if (!btn) return;
-    cfgTrail = btn.dataset.value;
-    activateToggle('trail-group', cfgTrail);
-    updateTrailSource(null);  // redraw immediately with new style
-});
 
 document.getElementById('poi-group').addEventListener('click', e => {
     const btn = e.target.closest('.tog');
@@ -751,9 +933,14 @@ document.getElementById('head-group').addEventListener('click', e => {
     if (!btn) return;
     cfgHead = btn.dataset.value;
     activateToggle('head-group', cfgHead);
-    // Clear head markers immediately when switching to basic
-    if (cfgHead === 'basic' && map.getSource('tram-heads'))
-        map.getSource('tram-heads').setData({ type: 'FeatureCollection', features: [] });
+    tramLayer.setVisible(cfgHead === 'distinct');
+});
+
+document.getElementById('stop-style-group').addEventListener('click', e => {
+    const btn = e.target.closest('.tog');
+    if (!btn) return;
+    cfgStopStyle = btn.dataset.value;
+    applyStopStyle(cfgStopStyle);
 });
 </script>
 </body>
