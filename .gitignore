@@ -6,3 +6,4 @@ docs/
 .playwright-mcp/
 *.jpeg
 *.png
+three.min.js

@@ -15,7 +15,7 @@ with open(env_path) as f:
             env[k.strip()] = v.strip()
 
 MAPBOX_TOKEN = env.get('MAPBOX_TOKEN', '')
-PROD_API = 'http://46.62.130.159:8000'
+PROD_API = env.get('PROD_API', 'http://localhost:8000')
 
 class Handler(SimpleHTTPRequestHandler):
 
