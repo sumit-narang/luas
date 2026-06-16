@@ -65,6 +65,41 @@ def get_replay(
     return [dict(r) for r in rows]
 
 
+@app.get("/api/replay-day")
+def get_replay_day(date: str = Query(..., description="Date in YYYY-MM-DD format")):
+    """Return one observation per 30-second bucket per unique tram for a full day in Dublin local time."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT DISTINCT ON (
+            FLOOR(EXTRACT(EPOCH FROM ta.observed_at) / 30),
+            ta.destination,
+            ta.direction
+        )
+            TO_TIMESTAMP(FLOOR(EXTRACT(EPOCH FROM ta.observed_at) / 30) * 30) AS observed_at,
+            ta.stop_abv,
+            ta.direction,
+            ta.destination,
+            ta.due_mins,
+            s.latitude,
+            s.longitude,
+            s.line
+        FROM tram_arrivals ta
+        JOIN stops s ON ta.stop_abv = s.stop_abv
+        WHERE ta.observed_at >= (%s::date::timestamp AT TIME ZONE 'Europe/Dublin')
+          AND ta.observed_at <  ((%s::date + 1)::timestamp AT TIME ZONE 'Europe/Dublin')
+        ORDER BY
+            FLOOR(EXTRACT(EPOCH FROM ta.observed_at) / 30),
+            ta.destination,
+            ta.direction,
+            ta.due_mins ASC
+    """, (date, date))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 @app.get("/api/dates")
 def get_dates():
     conn = get_db()
