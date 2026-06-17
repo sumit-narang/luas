@@ -222,6 +222,7 @@
             <button class="tog" data-value="C">C · Map</button>
             <button class="tog" data-value="D">D · Dots</button>
             <button class="tog active" data-value="DC">D+C</button>
+            <button class="tog" data-value="E">E · None</button>
         </div>
     </div>
     </div><!-- /config-body -->
@@ -1083,6 +1084,12 @@ const STOP_LABEL_STYLES = {
         field: ['step',['zoom'],'',13,['get','name']],
         layout: { 'text-size': ['interpolate',['linear'],['zoom'],13,11,15,14], 'text-font': ['DIN Pro Medium','Arial Unicode MS Regular'], 'text-max-width': 10 },
         paint:  { 'text-color': '#1a1a1a', 'text-halo-color': ['get','color'], 'text-halo-width': 2 }
+    },
+    E: { // Line only — no dots, no labels
+        dot:   { 'circle-radius': 0, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-width': 0, 'circle-stroke-color': 'rgba(0,0,0,0)' },
+        field: '',
+        layout: { 'text-size': 0, 'text-font': ['DIN Pro Medium','Arial Unicode MS Regular'], 'text-max-width': 0 },
+        paint:  { 'text-color': 'rgba(0,0,0,0)', 'text-halo-color': 'rgba(0,0,0,0)', 'text-halo-width': 0 }
     }
 };
 
