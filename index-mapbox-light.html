@@ -81,8 +81,6 @@
         #timeline-bar {
             position: fixed; bottom: 0; left: 0; right: 0; z-index: 10;
             height: 60px;
-            background: rgba(140, 210, 228, 0.45);
-            backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
             display: none; pointer-events: none;
         }
         #timeline-bar.active { pointer-events: auto; }
@@ -97,6 +95,18 @@
             padding: 3px 9px; border-radius: 20px;
             transform: translateX(-50%); pointer-events: none;
             white-space: nowrap; display: none;
+        }
+
+        /* ── Edge vignette blur ── */
+        #edge-blur {
+            position: fixed; inset: 0; z-index: 5;
+            pointer-events: none;
+            backdrop-filter: blur(28px);
+            -webkit-backdrop-filter: blur(28px);
+            mask-image: radial-gradient(ellipse 78% 68% at 50% 50%,
+                transparent 35%, rgba(0,0,0,0.5) 58%, black 78%);
+            -webkit-mask-image: radial-gradient(ellipse 78% 68% at 50% 50%,
+                transparent 35%, rgba(0,0,0,0.5) 58%, black 78%);
         }
 
         #config-panel {
@@ -132,6 +142,7 @@
 <body>
 
 <div id="map"></div>
+<div id="edge-blur"></div>
 
 <div id="luas-logo">LUAS</div>
 
@@ -919,36 +930,42 @@ function drawTimeline() {
 
     ctx.clearRect(0, 0, w, h);
 
-    // Tick grid: 10-min minor, 30-min medium, 1-hour major
-    // Align anchor to UTC hour boundary (Ireland is UTC+0 or UTC+1 — integer offsets, so UTC min == Dublin min)
+    // Collect all hour-aligned ticks so we can label only the first and last
     const anchor = new Date(t0);
     anchor.setUTCMinutes(0, 0, 0);
     const STEP = 10 * 60 * 1000;
+    const hourTicks = [];
+    for (let t = anchor.getTime(); t <= t1 + STEP; t += STEP) {
+        if (new Date(t).getUTCMinutes() === 0 && toX(t) >= 0 && toX(t) <= w) hourTicks.push(t);
+    }
+    const labelSet = new Set([hourTicks[0], hourTicks[hourTicks.length - 1]]);
+
+    // Draw ticks
     for (let t = anchor.getTime(); t <= t1 + STEP; t += STEP) {
         const x = toX(t);
         if (x < 0 || x > w) continue;
-        const dubMin = new Date(t).getUTCMinutes();  // UTC min == Dublin min (integer offset)
+        const dubMin = new Date(t).getUTCMinutes();
         const isHour = dubMin === 0;
         const isMid  = dubMin === 30;
         const tickH  = isHour ? 26 : isMid ? 16 : 10;
         const y1 = h - 10;
         const y0 = y1 - tickH;
         ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y1);
-        ctx.strokeStyle = isHour ? 'rgba(0,0,0,0.28)' : isMid ? 'rgba(0,0,0,0.16)' : 'rgba(0,0,0,0.10)';
+        ctx.strokeStyle = isHour ? 'rgba(0,0,0,0.30)' : isMid ? 'rgba(0,0,0,0.14)' : 'rgba(0,0,0,0.08)';
         ctx.lineWidth = isHour ? 1.5 : 1;
         ctx.stroke();
 
-        if (isHour) {
+        if (isHour && labelSet.has(t)) {
             const label = new Date(t).toLocaleTimeString('en-IE', {
-                timeZone: 'Europe/Dublin', hour: 'numeric', hour12: true
-            }).replace(':00', '').toLowerCase();
+                timeZone: 'Europe/Dublin', hour: 'numeric', minute: '2-digit', hour12: true
+            }).toLowerCase();
             ctx.save();
-            ctx.shadowColor = 'rgba(255,255,255,0.95)';
-            ctx.shadowBlur = 6;
+            ctx.shadowColor = 'rgba(255,255,255,0.8)';
+            ctx.shadowBlur = 4;
             ctx.fillStyle = 'rgba(0,0,0,0.45)';
-            ctx.font = '10px -apple-system, BlinkMacSystemFont, sans-serif';
-            ctx.textAlign = 'center';
-            ctx.fillText(label, x, y0 - 4);
+            ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+            ctx.textAlign = t === hourTicks[0] ? 'left' : 'right';
+            ctx.fillText(label, x, y0 - 5);
             ctx.restore();
         }
     }
