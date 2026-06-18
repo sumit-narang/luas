@@ -5,11 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Luas 3D Replay</title>
     <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
     <script src="three.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: -apple-system, sans-serif; }
+        body { font-family: 'Inter', -apple-system, sans-serif; }
         #map { position: fixed; inset: 0; }
 
         /* ── LUAS logo ── */
@@ -174,6 +177,32 @@
             transition: background 0.15s, color 0.15s; white-space: nowrap;
         }
         .tog.active { background: #5a5fcf; color: #fff; font-weight: 600; }
+
+        /* ── Map-style debugger panel ── */
+        #style-panel {
+            position: fixed; top: 150px; left: 16px; z-index: 21; width: 232px;
+            background: rgba(255,255,255,0.9);
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(0,0,0,0.08); border-radius: 12px;
+            box-shadow: 0 2px 16px rgba(0,0,0,0.12); font-size: 12px;
+        }
+        #sp-title {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 10px 12px; font-weight: 700; color: #222;
+            cursor: pointer; user-select: none;
+        }
+        #sp-chevron { transition: transform .2s; font-size: 10px; color: #aaa; }
+        #sp-chevron.open { transform: rotate(180deg); }
+        #sp-body { max-height: 0; overflow: hidden; transition: max-height .25s ease; }
+        #sp-body.open { max-height: 64vh; overflow-y: auto; }
+        #sp-list { padding: 2px 6px 10px; }
+        .sp-group { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+            color: #999; padding: 9px 8px 3px; font-weight: 700; }
+        .sp-row { padding: 6px 10px; border-radius: 8px; cursor: pointer; color: #333;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .sp-row:hover { background: rgba(0,0,0,0.06); }
+        .sp-row.active { background: #5a5fcf; color: #fff; font-weight: 600; }
+        .sp-note { font-size: 10px; color: #b04; padding: 1px 10px 4px; white-space: normal; line-height: 1.3; }
     </style>
 </head>
 <body>
@@ -260,17 +289,23 @@
         <div class="toggle-group" id="stop-style-group">
             <button class="tog" data-value="A">A · Pill</button>
             <button class="tog" data-value="B">B · Card</button>
-            <button class="tog" data-value="C">C · Map</button>
+            <button class="tog active" data-value="C">C · Map</button>
             <button class="tog" data-value="D">D · Dots</button>
-            <button class="tog active" data-value="DC">D+C</button>
+            <button class="tog" data-value="DC">D+C</button>
             <button class="tog" data-value="E">E · None</button>
         </div>
     </div>
     </div><!-- /config-body -->
 </div>
 
+<div id="style-panel">
+    <div id="sp-title">🎨 Map styles <span id="sp-chevron">▼</span></div>
+    <div id="sp-body"><div id="sp-list"></div></div>
+</div>
+
 <script>
-const MAPBOX_TOKEN = 'YOUR_MAPBOX_TOKEN';
+const MAPBOX_TOKEN   = 'YOUR_MAPBOX_TOKEN';
+const MAPTILER_KEY   = 'YOUR_MAPTILER_KEY';
 const API = '/luas-api';
 
 mapboxgl.accessToken = MAPBOX_TOKEN;
@@ -282,7 +317,7 @@ let cfgLight   = 'day';
 let isStandardStyle = true;  // false when light-v11 is active for monochrome
 let cfgPOI       = 'show';      // 'show' | 'hide'
 let cfgHead      = 'distinct';  // 'basic' | 'distinct'
-let cfgStopStyle = 'DC';        // A | B | C | D | DC
+let cfgStopStyle = 'C';         // A | B | C | D | DC | E (C = none until zoomed in)
 let stopsCache      = null;
 let routesCache     = null;
 let snappedCache    = null;
@@ -306,9 +341,10 @@ async function apiFetch(path) {
 }
 
 // ── Map ────────────────────────────────────────────────────────────────
-const _initialStyle = cfgTheme === 'monochrome'
-    ? (isStandardStyle = false, 'mapbox://styles/mapbox/light-v11')
-    : 'mapbox://styles/mapbox/standard';
+// Default basemap: Klokantech Basic (OpenMapTiles via MapTiler). Not a Mapbox
+// Standard style, so the Standard-only config controls stay inert by default.
+isStandardStyle = false;
+const _initialStyle = 'https://raw.githubusercontent.com/openmaptiles/klokantech-basic-gl-style/master/style.json';
 const map = new mapboxgl.Map({
     container: 'map',
     style: _initialStyle,
@@ -316,7 +352,10 @@ const map = new mapboxgl.Map({
     zoom: 12.2,
     pitch: 58,
     bearing: -15,
-    antialias: true
+    antialias: true,
+    // Inject the MapTiler key into any request that carries the {key} placeholder
+    // (covers the OpenMapTiles tiles/glyphs for the default + URL-loaded styles).
+    transformRequest: (url) => ({ url: url.indexOf('{key}') >= 0 ? url.split('{key}').join(MAPTILER_KEY) : url })
 });
 
 map.addControl(new mapboxgl.NavigationControl({ visualizePitch: true }), 'top-right');
@@ -415,22 +454,165 @@ function buildAllStopProjections() {
 const _CTR_LON = -6.275, _CTR_LAT = 53.342;
 let _mcRef = null; // MercatorCoordinate of scene origin
 
-// One articulated car (8 m long). isFirst = true adds a nose cap at the +X end.
+// ── Material factories (fresh per car so per-mesh disposal stays safe) ──
+// Painted aluminium body, dark gloss glass, matte roof equipment, etc.
+// Body is the base; every overlay (glass, stripes, pillars, bellows, roof units)
+// uses polygonOffset so it renders cleanly in front of the body and of each other
+// — without it they z-fight (flicker / vanishing) at the map's low depth precision.
+const PO = (f, u) => ({ polygonOffset: true, polygonOffsetFactor: f, polygonOffsetUnits: u });
+const bodyMat   = hex => new THREE.MeshStandardMaterial({ color: hex, metalness: 0.2,  roughness: 0.45 });
+const glassMat  = ()  => new THREE.MeshPhongMaterial({ color: 0x5f6a76, shininess: 90, specular: 0x9aa6b2, side: THREE.DoubleSide, ...PO(-1, -2) });
+const yellowMat = ()  => new THREE.MeshStandardMaterial({ color: 0xF4C400, metalness: 0.2,  roughness: 0.5, ...PO(-2, -4) });
+const accentMat = hex => new THREE.MeshStandardMaterial({ color: hex,      metalness: 0.2,  roughness: 0.5, ...PO(-2, -4) });
+const pillarMat = ()  => new THREE.MeshStandardMaterial({ color: 0xEDEFF1, metalness: 0.2,  roughness: 0.5, ...PO(-3, -6) });
+const bellowsMat= ()  => new THREE.MeshStandardMaterial({ color: 0x3a3f45, metalness: 0.2,  roughness: 0.85, ...PO(-4, -8) });
+const roofMat   = ()  => new THREE.MeshStandardMaterial({ color: 0xb6bbc0, metalness: 0.2,  roughness: 0.7, ...PO(-2, -4) });
+const skirtMat  = ()  => new THREE.MeshStandardMaterial({ color: 0x202428, metalness: 0.2,  roughness: 0.8, ...PO(-1, -2) });
+const lightMat  = ()  => new THREE.MeshBasicMaterial({ color: 0xFFF3D6 });
+
+// Rounded tram cross-section (looking down the length): flat floor,
+// near-vertical sides, gently curved shoulders into a domed roof.
+function bodyProfile(W, H) {
+    const hw = W / 2, rTop = 0.6, rBot = 0.12;
+    const s = new THREE.Shape();
+    s.moveTo(-hw + rBot, 0);
+    s.lineTo(hw - rBot, 0);
+    s.quadraticCurveTo(hw, 0, hw, rBot);
+    s.lineTo(hw, H - rTop);
+    s.quadraticCurveTo(hw, H, hw - rTop, H);
+    s.lineTo(-hw + rTop, H);
+    s.quadraticCurveTo(-hw, H, -hw, H - rTop);
+    s.lineTo(-hw, rBot);
+    s.quadraticCurveTo(-hw, 0, -hw + rBot, 0);
+    return s;
+}
+
+// Long, streamlined "bullet" cab nose (ICE-style), lofted through many
+// cross-section rings: the body profile sweeps forward while narrowing,
+// the roofline dives down and the underside lifts to a low rounded tip.
+// A large windscreen wraps over the upper-front. Returns { shellGeo, screenGeo }.
+function makeNose(W, H, noseLen) {
+    const profile = bodyProfile(W, H);
+    const pts = profile.getPoints(44);          // Vector2(a=across, b=up)
+    const n   = pts.length;
+    const hf  = pts.map(p => p.y / H);          // height fraction per point
+
+    const M      = 22;        // rings along the nose
+    const tipTop = 2.25;      // roofline stays high → gentle, rounded cab (Citadis)
+    const tipBot = 0.55;      // front lower edge comes down
+    const tipW   = 0.5;       // rounded full-ish front (not a sharp point)
+
+    const rings = [], ts = [];
+    for (let i = 0; i <= M; i++) {
+        const t = i / M;
+        const x    = noseLen * t;
+        const topY = H - (H - tipTop) * Math.pow(t, 1.25);  // roofline curves down gently
+        const botY = tipBot * Math.pow(t, 1.35);            // underside lifts
+        const wS   = 1 - (1 - tipW) * Math.pow(t, 1.05);    // gentle width taper
+        rings.push(pts.map(p => [x, botY + (p.y / H) * (topY - botY), p.x * wS]));
+        ts.push(t);
+    }
+
+    const shell = [], screen = [];
+    for (let i = 0; i < M; i++) {
+        const tMid = (ts[i] + ts[i + 1]) / 2;
+        for (let j = 0; j < n; j++) {
+            const k = (j + 1) % n;
+            const A = rings[i][j], B = rings[i][k], C = rings[i + 1][k], D = rings[i + 1][j];
+            const hMid = (hf[j] + hf[k]) / 2;
+            // Wrap-over windscreen: upper surface near the cab; the long front
+            // taper stays body-coloured (white tip ahead, like an ICE cab).
+            const isGlass = hMid > 0.5 && tMid > 0.04 && tMid < 0.66;
+            (isGlass ? screen : shell).push(...A, ...B, ...C, ...A, ...C, ...D);
+        }
+    }
+
+    // Round off the tip: fan the final (tiny) ring to its centroid
+    const last = rings[M];
+    let cx = 0, cy = 0, cz = 0;
+    for (const p of last) { cx += p[0]; cy += p[1]; cz += p[2]; }
+    cx /= n; cy /= n; cz /= n;
+    for (let j = 0; j < n; j++) {
+        const k = (j + 1) % n;
+        shell.push(cx, cy, cz, ...last[k], ...last[j]);
+    }
+
+    const mkGeo = arr => {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(arr), 3));
+        g.computeVertexNormals();
+        return g;
+    };
+    return { shellGeo: mkGeo(shell), screenGeo: mkGeo(screen) };
+}
+
+// One long tram body (single continuous mesh). isFirst = true adds the cab nose.
+// Local axes: +X = forward (toward the nose), car centred on the origin.
+const CAR_LEN  = 22;    // metres, body length (3 compartments)
+const NOSE_LEN = 3.5;   // metres, rounded cab nose ahead of the body
 function makeTramSegment(lineHex, isFirst) {
-    const g = new THREE.Group();
-    const box = (w, h, d, hex, x, y, z) => {
-        const m = new THREE.Mesh(
-            new THREE.BoxGeometry(w, h, d),
-            new THREE.MeshLambertMaterial({ color: hex })
-        );
+    const g   = new THREE.Group();
+    const L   = CAR_LEN, H = 3.2, W = 2.65;
+    const hw  = W / 2;
+    // Boxes are subdivided along their length (x) so they can bend on curves.
+    const box = (w, h, d, mat, x, y, z) => {
+        const seg = Math.max(1, Math.round(w * 1.5));
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d, seg, 1, 1), mat);
         m.position.set(x, y, z);
         g.add(m);
     };
-    box(8,   3.2,  2.8,  0xCDD2D5,  0,    1.6,  0);  // body
-    box(6.4, 1.4,  2.82, 0x1E2830,  0,    2.4,  0);  // windows
-    box(8,   0.7,  2.82, lineHex,   0,    0.7,  0);  // stripe
-    box(7,   0.4,  2.6,  0xE8ECEE,  0,    3.2,  0);  // roof
-    if (isFirst) box(0.8, 3.2, 2.8, 0xA8ADB0, 4.4, 1.6, 0); // nose
+
+    // Rounded body shell (extrude the cross-section along the length).
+    // steps subdivides the length so the body bends smoothly on curves.
+    const bodyGeo = new THREE.ExtrudeGeometry(bodyProfile(W, H), {
+        depth: L, bevelEnabled: false, curveSegments: 10, steps: Math.max(18, Math.round(L)) });
+    bodyGeo.rotateY(Math.PI / 2);
+    bodyGeo.translate(-L / 2, 0, 0);
+    const WHITE = 0xEDEFF1;
+    g.add(new THREE.Mesh(bodyGeo, bodyMat(WHITE)));   // white body
+
+    // Bands are stacked in Y without overlapping (skirt → white → yellow → glass →
+    // accent → white roof shoulder) and use graduated polygonOffset, so no z-fight.
+    // Window band (dark tinted glass): 1.60 .. 2.52
+    box(L * 0.97, 0.92, W + 0.04, glassMat(), 0, 2.06, 0);
+
+    // White window pillars between the glass panes
+    const nMul = Math.max(3, Math.round(L / 2.6));
+    for (let i = 1; i < nMul; i++)
+        box(0.12, 0.96, W + 0.06, pillarMat(), -L / 2 + (i * L / nMul), 2.06, 0);
+
+    // Luas livery: yellow stripe just below the windows + thin line-colour accent
+    // just above them (kept below the roof curve at y≈2.6 so it can't paint the roof)
+    box(L * 0.99, 0.16, W + 0.05, yellowMat(),        0, 1.50, 0);  // 1.42 .. 1.58
+    box(L * 0.99, 0.07, W + 0.05, accentMat(lineHex), 0, 2.565, 0); // 2.53 .. 2.60
+
+    // Articulation: two dark bellows joints split the body into 3 compartments
+    for (const jx of [-L / 2 + L / 3, -L / 2 + 2 * L / 3])
+        box(0.55, H * 0.84, W + 0.08, bellowsMat(), jx, 1.68, 0);
+
+    // Dark skirt / underframe
+    box(L, 0.45, W - 0.04, skirtMat(), 0, 0.24, 0);
+
+    // Roof equipment (small AC units per compartment; body roof stays white)
+    for (let i = 0; i < 3; i++)
+        box(L * 0.18, 0.16, W * 0.5, roofMat(), -L / 2 + L * (i + 0.5) / 3, H + 0.04, 0);
+
+    if (isFirst) {
+        const NL = NOSE_LEN;
+        const { shellGeo, screenGeo } = makeNose(W, H, NL);
+        const shellMat = bodyMat(WHITE); shellMat.side = THREE.DoubleSide;
+        const shell = new THREE.Mesh(shellGeo, shellMat);
+        shell.position.set(L / 2, 0, 0);
+        g.add(shell);
+
+        const screen = new THREE.Mesh(screenGeo, glassMat());
+        screen.position.set(L / 2, 0, 0);
+        g.add(screen);
+
+        // Yellow accent wrapping the lower cab front
+        box(NL * 0.5, 0.26, W * 0.78, yellowMat(), L / 2 + NL * 0.45, 0.95, 0);
+    }
+
     return g;
 }
 
@@ -438,7 +620,7 @@ const tramLayer = {
     id: 'tram-3d',
     type: 'custom',
     renderingMode: '3d',
-    _objs: new Map(),    // key → [seg0..seg4]
+    _objs: new Map(),    // key → { group, parts:[{geom,orig}], xMin, xMax }
     _scene: null, _camera: null, _renderer: null, _map: null,
     _active: true,
 
@@ -447,13 +629,14 @@ const tramLayer = {
         this._camera = new THREE.Camera();
         this._scene  = new THREE.Scene();
 
-        // Lighting: warm sun from upper-right + cool fill from below
-        this._scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-        const sun = new THREE.DirectionalLight(0xfff4e0, 1.6);
+        // Lighting: warm sun from upper-right, cool sky/ground hemisphere fill
+        this._scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+        this._scene.add(new THREE.HemisphereLight(0xeaf2ff, 0xb8b0a4, 0.9));
+        const sun = new THREE.DirectionalLight(0xfff4e0, 1.7);
         sun.position.set(0.4, 1, 0.6).normalize();
         this._scene.add(sun);
-        const fill = new THREE.DirectionalLight(0xc0d8ff, 0.35);
-        fill.position.set(-0.4, -0.5, -0.5).normalize();
+        const fill = new THREE.DirectionalLight(0xc0d8ff, 0.4);
+        fill.position.set(-0.4, -0.3, -0.6).normalize();
         this._scene.add(fill);
 
         this._renderer = new THREE.WebGLRenderer({
@@ -465,34 +648,59 @@ const tramLayer = {
     },
 
     onRemove() {
-        for (const segs of this._objs.values())
-            segs.forEach(s => { this._scene?.remove(s); s.traverse(c => { c.geometry?.dispose(); c.material?.dispose(); }); });
+        for (const e of this._objs.values()) {
+            this._scene?.remove(e.group);
+            e.group.traverse(c => { c.geometry?.dispose(); c.material?.dispose(); });
+        }
         this._renderer?.dispose();
         this._scene = this._camera = this._renderer = null;
         this._objs.clear();
     },
 
-    // Scale so each 8 m car appears ~10 px long on screen
+    // Size the car so it's clearly visible at every zoom: ~real size (×2 ≈ 55 m)
+    // when zoomed in, then a roughly constant on-screen marker size when zoomed out
+    // (high cap only guards the most extreme zoom-out). Chord-mode below keeps the
+    // shape clean (straight, no skew) whenever it's drawn larger than real size.
     _scaleAt(zoom) {
         const mpp = (156543.03392 * Math.cos(_CTR_LAT * Math.PI / 180)) / Math.pow(2, zoom);
-        return (10 * mpp) / 8;
+        return Math.min(40.0, Math.max(2.0, (10 * mpp) / 8));
     },
 
+    // Build one car and capture each mesh's local positions (in car space, with
+    // the mesh offset folded in) so we can bend them along the route every frame.
+    _buildTram(lineHex) {
+        const group = makeTramSegment(lineHex, true);
+        const parts = [];
+        let xMin = Infinity, xMax = -Infinity;
+        group.traverse(o => {
+            if (!o.isMesh) return;
+            const arr = o.geometry.attributes.position.array;
+            const orig = new Float32Array(arr.length);
+            const ox = o.position.x, oy = o.position.y, oz = o.position.z;
+            for (let i = 0; i < arr.length; i += 3) {
+                const lx = arr[i] + ox;
+                orig[i] = lx; orig[i + 1] = arr[i + 1] + oy; orig[i + 2] = arr[i + 2] + oz;
+                if (lx < xMin) xMin = lx;
+                if (lx > xMax) xMax = lx;
+            }
+            o.position.set(0, 0, 0);   // geometry now holds absolute (bent) coords
+            o.frustumCulled = false;   // bend mutates verts each frame; stale bounds
+                                       // would otherwise cull/flicker the mesh
+            parts.push({ geom: o.geometry, orig });
+        });
+        return { group, parts, xMin, xMax };
+    },
 
     updateTrams(tramPositions) {
         if (!this._scene || !this._active) return;
         const s   = this._scaleAt(this._map.getZoom());
         const cos = Math.cos(_CTR_LAT * Math.PI / 180);
-        const N   = 5;      // number of articulated car segments
-        const GAP = 9;      // metres between segment centres (8 m car + 1 m gap)
 
         // Remove trams that left the frame
-        for (const [key, segs] of this._objs) {
+        for (const [key, e] of this._objs) {
             if (!tramPositions.has(key)) {
-                segs.forEach(seg => {
-                    this._scene.remove(seg);
-                    seg.traverse(c => { c.geometry?.dispose(); c.material?.dispose(); });
-                });
+                this._scene.remove(e.group);
+                e.group.traverse(c => { c.geometry?.dispose(); c.material?.dispose(); });
                 this._objs.delete(key);
             }
         }
@@ -501,43 +709,69 @@ const tramLayer = {
             const lineHex = color === '#dd1122' ? 0xdd1122 : 0x16A34A;
 
             if (!this._objs.has(key)) {
-                const segs = Array.from({ length: N }, (_, i) => {
-                    const seg = makeTramSegment(lineHex, i === 0);
-                    this._scene.add(seg);
-                    return seg;
-                });
-                this._objs.set(key, segs);
+                const e = this._buildTram(lineHex);
+                this._scene.add(e.group);
+                this._objs.set(key, e);
             }
-            const segs = this._objs.get(key);
-            const idx  = routeKey ? routeIndexes[routeKey] : null;
+            const e   = this._objs.get(key);
+            const idx = routeKey ? routeIndexes[routeKey] : null;
+            const len = e.xMax - e.xMin;
+            const VLEN = len * s;                    // visible car length in metres
 
-            for (let i = 0; i < N; i++) {
-                let sLon, sLat, aLon, aLat;
+            // ── Articulated layout ───────────────────────────────────────
+            // The car is 3 rigid compartments + a cab nose, hinged at the joints.
+            // We sample the track only at the joint points and lay each segment out
+            // STRAIGHT between consecutive joints — so each compartment is rigid and
+            // the body only bends at the joints, exactly like a real Luas. This looks
+            // identical/correct on straight and curved track at any zoom (no banana,
+            // no chord cutting across the curve).
+            // sampleU(u): scene point at length-parameter u (0 = tail … 1 = nose tip)
+            let sampleU;
+            if (idx && routeDist != null) {
+                const dFront = Math.max(0, Math.min(idx.totalDist, routeDist));
+                const sgn = forward ? -1 : 1;
+                sampleU = u => {
+                    const d = Math.max(0, Math.min(idx.totalDist, dFront + sgn * (1 - u) * VLEN));
+                    const [lo, la] = posAtDist(d, idx);
+                    return [(lo - _CTR_LON) * cos * 111320, -(la - _CTR_LAT) * 111320];
+                };
+            } else {
+                const fx = (lon - _CTR_LON) * cos * 111320, fz = -(lat - _CTR_LAT) * 111320;
+                let ux = (aheadLon - lon) * cos * 111320, uz = -(aheadLat - lat) * 111320;
+                const ul = Math.hypot(ux, uz) || 1e-9; ux /= ul; uz /= ul;
+                sampleU = u => [fx - ux * (1 - u) * VLEN, fz - uz * (1 - u) * VLEN];
+            }
 
-                if (idx && routeDist != null) {
-                    // Walk i segments backward from the front along the snapped route
-                    const d  = Math.max(0, Math.min(idx.totalDist, routeDist + (forward ? -i : i) * GAP));
-                    const dA = Math.max(0, Math.min(idx.totalDist, d + (forward ? 4 : -4)));
-                    [sLon, sLat] = posAtDist(d,  idx);
-                    [aLon, aLat] = posAtDist(dA, idx);
-                } else {
-                    // Fallback: space segments in straight line using aheadLon/Lat
-                    const dx = aheadLon - lon, dy = aheadLat - lat;
-                    const len = Math.hypot(dx, dy) || 1e-9;
-                    const deg = GAP * i / (111320 * cos);
-                    sLon = lon - (dx / len) * deg;
-                    sLat = lat - (dy / len) * deg * cos;
-                    aLon = aheadLon; aLat = aheadLat;
+            // Joint nodes in length-parameter space: tail, joint1, joint2, body-front,
+            // nose-tip (matches the bellows positions in the geometry).
+            const HL = CAR_LEN / 2;
+            const nodeX = [-HL, -HL + CAR_LEN / 3, -HL + 2 * CAR_LEN / 3, HL, HL + NOSE_LEN];
+            const nodeU = nodeX.map(x => (x - e.xMin) / len);
+            const NP = nodeU.map(sampleU);                 // node scene points
+            const TAN = [];                                 // per-segment unit tangent
+            for (let k = 0; k < NP.length - 1; k++) {
+                let tx = NP[k + 1][0] - NP[k][0], tz = NP[k + 1][1] - NP[k][1];
+                const tl = Math.hypot(tx, tz) || 1e-9; TAN.push([tx / tl, tz / tl]);
+            }
+
+            for (const part of e.parts) {
+                const pos = part.geom.attributes.position.array;
+                const orig = part.orig;
+                for (let i = 0; i < pos.length; i += 3) {
+                    const u = (orig[i] - e.xMin) / len;      // 0 = tail, 1 = nose tip
+                    let k = 0;
+                    while (k < nodeU.length - 2 && u > nodeU[k + 1]) k++;
+                    const f = (u - nodeU[k]) / ((nodeU[k + 1] - nodeU[k]) || 1e-9);
+                    const cx = NP[k][0] + (NP[k + 1][0] - NP[k][0]) * f;
+                    const cz = NP[k][1] + (NP[k + 1][1] - NP[k][1]) * f;
+                    const tx = TAN[k][0], tz = TAN[k][1];    // straight within a segment
+                    const lz = orig[i + 2] * s;              // across-track offset
+                    pos[i]     = cx - tz * lz;
+                    pos[i + 1] = orig[i + 1] * s;            // height
+                    pos[i + 2] = cz + tx * lz;
                 }
-
-                segs[i].position.set(
-                    (sLon - _CTR_LON) * cos * 111320,
-                    0,
-                    -(sLat - _CTR_LAT) * 111320
-                );
-                const bearing = Math.atan2(aLon - sLon, aLat - sLat);
-                segs[i].rotation.y = Math.PI / 2 - bearing;
-                segs[i].scale.setScalar(s);
+                part.geom.attributes.position.needsUpdate = true;
+                part.geom.computeVertexNormals();
             }
         }
         this._map.triggerRepaint();
@@ -768,13 +1002,14 @@ map.on('style.load', async () => {
         map.addLayer({ id: `${id}-shadow`, type: 'line', source: id,
             slot: 'top',
             layout: { 'line-cap': 'round', 'line-join': 'round' },
-            paint: { 'line-color': '#000', 'line-width': 10, 'line-opacity': 0.13, 'line-blur': 4 }
+            paint: { 'line-color': '#000', 'line-opacity': 0.13, 'line-blur': 3,
+                     'line-width': ['interpolate', ['linear'], ['zoom'], 10, 3, 14, 4.5, 18, 6] }
         });
         map.addLayer({ id: `${id}-core`, type: 'line', source: id,
             slot: 'top',
             layout: { 'line-cap': 'round', 'line-join': 'round' },
-            paint: { 'line-color': color, 'line-width': 6, 'line-opacity': 1,
-                     'line-emissive-strength': 1 }
+            paint: { 'line-color': color, 'line-opacity': 1, 'line-emissive-strength': 1,
+                     'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 14, 2.5, 18, 4] }
         });
     }
 
@@ -840,7 +1075,7 @@ map.on('style.load', async () => {
             'text-anchor': ['get', 'anchor'],
             'text-offset': [['get', 'offset_x'], ['get', 'offset_y']],
             'text-max-width': 10,
-            'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+            'text-font': ['Inter Medium', 'Open Sans Regular', 'Arial Unicode MS Regular'],
             'text-allow-overlap': false,
             'text-ignore-placement': false
         },
@@ -1075,7 +1310,7 @@ function drawTimeline() {
             ctx.shadowColor = 'rgba(255,255,255,0.8)';
             ctx.shadowBlur = 4;
             ctx.fillStyle = 'rgba(0,0,0,0.45)';
-            ctx.font = '11px -apple-system, BlinkMacSystemFont, sans-serif';
+            ctx.font = "11px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif";
             ctx.textAlign = t === hourTicks[0] ? 'left' : 'right';
             ctx.fillText(label, x, y0 - 5);
             ctx.restore();
@@ -1181,37 +1416,38 @@ const STOP_LABEL_STYLES = {
     A: {  // Colored pill badges: white text on line-color halo blob
         dot:   { 'circle-radius': 6, 'circle-color': '#fff', 'circle-stroke-width': 3, 'circle-stroke-color': ['get','color'] },
         field: ['get','name'],
-        layout: { 'text-size': ['interpolate',['linear'],['zoom'],11,11,14,14], 'text-font': ['DIN Pro Bold','Arial Unicode MS Bold'], 'text-max-width': 10 },
+        layout: { 'text-size': ['interpolate',['linear'],['zoom'],11,11,14,14], 'text-font': ['Inter Medium','Open Sans Regular','Arial Unicode MS Bold'], 'text-max-width': 10 },
         paint:  { 'text-color': '#fff', 'text-halo-color': ['get','color'], 'text-halo-width': 4 }
     },
     B: {  // Floating white card: dark text on opaque white halo
         dot:   { 'circle-radius': 5, 'circle-color': '#fff', 'circle-stroke-width': 2.5, 'circle-stroke-color': ['get','color'] },
         field: ['get','name'],
-        layout: { 'text-size': ['interpolate',['linear'],['zoom'],11,11,14,13], 'text-font': ['DIN Pro Medium','Arial Unicode MS Regular'], 'text-max-width': 10 },
+        layout: { 'text-size': ['interpolate',['linear'],['zoom'],11,11,14,13], 'text-font': ['Inter Medium','Open Sans Regular','Arial Unicode MS Regular'], 'text-max-width': 10 },
         paint:  { 'text-color': '#111', 'text-halo-color': 'rgba(255,255,255,0.97)', 'text-halo-width': 4 }
     },
-    C: {  // Cartographic: line-colored text, no halo or background
-        dot:   { 'circle-radius': 4, 'circle-color': ['get','color'], 'circle-stroke-width': 1.5, 'circle-stroke-color': '#fff' },
-        field: ['get','name'],
-        layout: { 'text-size': ['interpolate',['linear'],['zoom'],11,10,14,13], 'text-font': ['DIN Pro Medium','Arial Unicode MS Regular'], 'text-max-width': 10 },
+    C: {  // Cartographic: nothing when zoomed out, line-coloured dots + labels at zoom ≥ 13
+        dot:   { 'circle-radius': ['step',['zoom'],0,13,4], 'circle-color': ['get','color'],
+                 'circle-stroke-width': ['step',['zoom'],0,13,1.5], 'circle-stroke-color': '#fff' },
+        field: ['step',['zoom'],'',13,['get','name']],
+        layout: { 'text-size': ['interpolate',['linear'],['zoom'],13,11,16,14], 'text-font': ['Inter Medium','Open Sans Regular','Arial Unicode MS Regular'], 'text-max-width': 10 },
         paint:  { 'text-color': ['get','color'], 'text-halo-width': 0, 'text-halo-color': 'rgba(0,0,0,0)' }
     },
     D: {  // Big dots only — labels appear at zoom ≥ 13
         dot:   { 'circle-radius': ['interpolate',['linear'],['zoom'],10,4,13,8,15,10], 'circle-color': '#fff', 'circle-stroke-width': 3, 'circle-stroke-color': ['get','color'] },
         field: ['step',['zoom'],'',13,['get','name']],
-        layout: { 'text-size': ['interpolate',['linear'],['zoom'],13,11,15,14], 'text-font': ['DIN Pro Medium','Arial Unicode MS Regular'], 'text-max-width': 10 },
+        layout: { 'text-size': ['interpolate',['linear'],['zoom'],13,11,15,14], 'text-font': ['Inter Medium','Open Sans Regular','Arial Unicode MS Regular'], 'text-max-width': 10 },
         paint:  { 'text-color': '#111', 'text-halo-color': 'rgba(255,255,255,0.97)', 'text-halo-width': 3 }
     },
     DC: { // D dots + C cartographic labels at zoom ≥ 13
         dot:   { 'circle-radius': ['interpolate',['linear'],['zoom'],10,4,13,8,15,10], 'circle-color': '#fff', 'circle-stroke-width': 3, 'circle-stroke-color': ['get','color'] },
         field: ['step',['zoom'],'',13,['get','name']],
-        layout: { 'text-size': ['interpolate',['linear'],['zoom'],13,11,15,14], 'text-font': ['DIN Pro Medium','Arial Unicode MS Regular'], 'text-max-width': 10 },
+        layout: { 'text-size': ['interpolate',['linear'],['zoom'],13,11,15,14], 'text-font': ['Inter Medium','Open Sans Regular','Arial Unicode MS Regular'], 'text-max-width': 10 },
         paint:  { 'text-color': '#1a1a1a', 'text-halo-color': ['get','color'], 'text-halo-width': 2 }
     },
     E: { // Line only — no dots, no labels
         dot:   { 'circle-radius': 0, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-width': 0, 'circle-stroke-color': 'rgba(0,0,0,0)' },
         field: '',
-        layout: { 'text-size': 0, 'text-font': ['DIN Pro Medium','Arial Unicode MS Regular'], 'text-max-width': 0 },
+        layout: { 'text-size': 0, 'text-font': ['Inter Medium','Open Sans Regular','Arial Unicode MS Regular'], 'text-max-width': 0 },
         paint:  { 'text-color': 'rgba(0,0,0,0)', 'text-halo-color': 'rgba(0,0,0,0)', 'text-halo-width': 0 }
     }
 };
@@ -1251,6 +1487,8 @@ document.getElementById('basemap-group').addEventListener('click', e => {
     if (!btn) return;
     cfgBasemap = btn.dataset.value;
     activateToggle('basemap-group', cfgBasemap);
+    isStandardStyle = true;
+    syncStylePanel(null);
     const styleUrl = cfgBasemap === 'standard-satellite'
         ? 'mapbox://styles/mapbox/standard-satellite'
         : 'mapbox://styles/mapbox/standard';
@@ -1277,7 +1515,7 @@ document.getElementById('light-group').addEventListener('click', e => {
     if (!btn) return;
     cfgLight = btn.dataset.value;
     activateToggle('light-group', cfgLight);
-    map.setConfigProperty('basemap', 'lightPreset', cfgLight);
+    if (isStandardStyle) map.setConfigProperty('basemap', 'lightPreset', cfgLight);
 });
 
 
@@ -1286,8 +1524,7 @@ document.getElementById('poi-group').addEventListener('click', e => {
     if (!btn) return;
     cfgPOI = btn.dataset.value;
     activateToggle('poi-group', cfgPOI);
-    const show = cfgPOI === 'show';
-    map.setConfigProperty('basemap', 'showPointOfInterestLabels', show);
+    if (isStandardStyle) map.setConfigProperty('basemap', 'showPointOfInterestLabels', cfgPOI === 'show');
 });
 
 document.getElementById('head-group').addEventListener('click', e => {
@@ -1304,6 +1541,102 @@ document.getElementById('stop-style-group').addEventListener('click', e => {
     cfgStopStyle = btn.dataset.value;
     applyStopStyle(cfgStopStyle);
 });
+
+// ── Map-style debugger (awesome-mapbox-gl-styles) ───────────────────────
+// Three groups:
+//   mapbox  → mapbox://styles/… (uses your token; always works)
+//   omt     → real OpenMapTiles style.json with {key} → MapTiler key
+//   legacy  → community styles whose upstream tilesets are deprecated/private
+//             (listed for completeness; may render blank/partial)
+const _OMT = s => `https://raw.githubusercontent.com/openmaptiles/${s}/master/style.json`;
+const _RAW = 'https://raw.githubusercontent.com';
+const EXTRA_STYLES = [
+    { g: 'Mapbox',      name: 'Standard',            std: true,  url: 'mapbox://styles/mapbox/standard' },
+    { g: 'Mapbox',      name: 'Standard Satellite',  std: true,  url: 'mapbox://styles/mapbox/standard-satellite' },
+    { g: 'Mapbox',      name: 'Streets',             url: 'mapbox://styles/mapbox/streets-v12' },
+    { g: 'Mapbox',      name: 'Outdoors',            url: 'mapbox://styles/mapbox/outdoors-v12' },
+    { g: 'Mapbox',      name: 'Light',               url: 'mapbox://styles/mapbox/light-v11' },
+    { g: 'Mapbox',      name: 'Dark',                url: 'mapbox://styles/mapbox/dark-v11' },
+    { g: 'Mapbox',      name: 'Satellite',           url: 'mapbox://styles/mapbox/satellite-v9' },
+    { g: 'Mapbox',      name: 'Satellite Streets',   url: 'mapbox://styles/mapbox/satellite-streets-v12' },
+    { g: 'Mapbox',      name: 'Navigation Day',      url: 'mapbox://styles/mapbox/navigation-day-v1' },
+    { g: 'Mapbox',      name: 'Navigation Night',    url: 'mapbox://styles/mapbox/navigation-night-v1' },
+
+    { g: 'OpenMapTiles', name: 'Positron',           omt: true, json: _OMT('positron-gl-style') },
+    { g: 'OpenMapTiles', name: 'Dark Matter',        omt: true, json: _OMT('dark-matter-gl-style') },
+    { g: 'OpenMapTiles', name: 'OSM Bright',         omt: true, json: _OMT('osm-bright-gl-style') },
+    { g: 'OpenMapTiles', name: 'Toner',              omt: true, json: _OMT('toner-gl-style') },
+    { g: 'OpenMapTiles', name: 'Fiord Color',        omt: true, json: _OMT('fiord-color-gl-style') },
+    { g: 'OpenMapTiles', name: 'Klokantech Basic',   omt: true, json: _OMT('klokantech-basic-gl-style') },
+    { g: 'OpenMapTiles', name: 'Klokantech 3D',      omt: true, json: _OMT('klokantech-3d-gl-style') },
+    { g: 'OpenMapTiles', name: 'Klokantech Terrain', omt: true, json: _OMT('klokantech-terrain-gl-style') },
+    { g: 'OpenMapTiles', name: 'OSM Liberty',        omt: true, json: `${_RAW}/lukasmartinelli/osm-liberty/gh-pages/style.json` },
+
+    { g: 'Community (legacy)', name: 'Basic (basic-v8)',   json: `${_RAW}/mapbox/mapbox-gl-styles/master/styles/basic-v8.json` },
+    { g: 'Community (legacy)', name: 'Bright (bright-v8)', json: `${_RAW}/mapbox/mapbox-gl-styles/master/styles/bright-v8.json` },
+    { g: 'Community (legacy)', name: 'Camouflage',         json: `${_RAW}/jingsam/mapbox-gl-styles/master/Camouflage.json` },
+    { g: 'Community (legacy)', name: 'Neon',               json: `${_RAW}/NatEvatt/awesome-mapbox-gl-styles/master/styles/Neon/style.json` },
+    { g: 'Community (legacy)', name: 'Swiss Ski',          json: `${_RAW}/mapbox/mapbox-gl-swiss-ski-style/master/cij1zoclj002y8rkkdjl69psd.json` },
+    { g: 'Community (legacy)', name: 'Vintage',            json: `${_RAW}/mapbox/mapbox-gl-vintage-style/master/cif5p01n202nisaktvljx9mv3.json` },
+    { g: 'Community (legacy)', name: 'Whaam',              json: `${_RAW}/mapbox/mapbox-gl-whaam-style/master/cii8323c8004w0nlvtss3dbm2.json` },
+];
+
+function buildStylePanel() {
+    let html = '', lastG = null;
+    const haveKey = MAPTILER_KEY && MAPTILER_KEY !== 'YOUR_' + 'MAPTILER_KEY';
+    EXTRA_STYLES.forEach((d, i) => {
+        if (d.g !== lastG) {
+            html += `<div class="sp-group">${d.g}</div>`;
+            if (d.g === 'OpenMapTiles' && !haveKey)
+                html += `<div class="sp-note">⚠ add MAPTILER_KEY to .env to load these</div>`;
+            if (d.g === 'Community (legacy)')
+                html += `<div class="sp-note">upstream tilesets deprecated — may be blank</div>`;
+            lastG = d.g;
+        }
+        html += `<div class="sp-row${d.name === 'Klokantech Basic' ? ' active' : ''}" data-i="${i}">${d.name}</div>`;
+    });
+    document.getElementById('sp-list').innerHTML = html;
+}
+
+function syncStylePanel(activeIndex) {
+    document.querySelectorAll('.sp-row').forEach(r =>
+        r.classList.toggle('active', +r.dataset.i === activeIndex));
+}
+
+async function applyStyle(d, index) {
+    isStandardStyle = !!d.std;
+    const lb = document.getElementById('loading-bar'), lt = document.getElementById('loading-text');
+    lb.style.display = ''; lt.style.display = '';
+    setProgress(15, `Loading style: ${d.name}…`);
+    try {
+        if (d.url) {
+            map.setStyle(d.url);
+        } else {
+            const res = await fetch(d.json);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            let txt = await res.text();
+            txt = txt.split('{key}').join(MAPTILER_KEY);
+            map.setStyle(JSON.parse(txt));
+        }
+        setProgress(100, `Style: ${d.name}`);
+        setTimeout(() => { lb.style.display = 'none'; lt.style.display = 'none'; }, 700);
+    } catch (err) {
+        setProgress(0, `⚠ ${d.name}: ${err.message}`);
+    }
+}
+
+document.getElementById('sp-title').addEventListener('click', () => {
+    document.getElementById('sp-body').classList.toggle('open');
+    document.getElementById('sp-chevron').classList.toggle('open');
+});
+document.getElementById('sp-list').addEventListener('click', e => {
+    const row = e.target.closest('.sp-row');
+    if (!row) return;
+    const i = +row.dataset.i;
+    syncStylePanel(i);
+    applyStyle(EXTRA_STYLES[i], i);
+});
+buildStylePanel();
 </script>
 </body>
 </html>

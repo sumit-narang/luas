@@ -14,7 +14,10 @@ with open(env_path) as f:
             k, v = line.split('=', 1)
             env[k.strip()] = v.strip()
 
-MAPBOX_TOKEN = env.get('MAPBOX_TOKEN', '')
+MAPBOX_TOKEN  = env.get('MAPBOX_TOKEN', '')
+GOOGLE_KEY    = env.get('GOOGLE_MAPS_KEY', '')
+GOOGLE_MAPID  = env.get('GOOGLE_MAP_ID', 'DEMO_MAP_ID')
+MAPTILER_KEY  = env.get('MAPTILER_KEY', '')
 PROD_API = env.get('PROD_API', 'http://localhost:8000')
 
 class Handler(SimpleHTTPRequestHandler):
@@ -52,6 +55,9 @@ class Handler(SimpleHTTPRequestHandler):
                 return super().send_head()
 
             content = content.replace('YOUR_MAPBOX_TOKEN', MAPBOX_TOKEN)
+            content = content.replace('YOUR_GOOGLE_KEY', GOOGLE_KEY)
+            content = content.replace('YOUR_GOOGLE_MAPID', GOOGLE_MAPID)
+            content = content.replace('YOUR_MAPTILER_KEY', MAPTILER_KEY)
             encoded = content.encode('utf-8')
 
             self.send_response(200)
