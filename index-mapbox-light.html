@@ -705,6 +705,8 @@ const tramLayer = {
             }
         }
 
+        const trails = { red: [], green: [] };   // comet-tail features per line colour
+
         for (const [key, { lon, lat, aheadLon, aheadLat, color, routeKey, routeDist, forward }] of tramPositions) {
             const lineHex = color === '#dd1122' ? 0xdd1122 : 0x16A34A;
 
@@ -773,7 +775,27 @@ const tramLayer = {
                 part.geom.attributes.position.needsUpdate = true;
                 part.geom.computeVertexNormals();
             }
+
+            // Comet trail: starts just behind the tram's rear (so the bright end
+            // isn't hidden under the 3D model) and fades out going further back.
+            // Sampled tail→head so the line-gradient runs transparent → bright.
+            if (idx && routeDist != null) {
+                const back = forward ? -1 : 1;                 // route direction behind
+                const headD = Math.max(0, Math.min(idx.totalDist, routeDist + back * VLEN * 0.8));
+                const trailLen = VLEN * 2.5;
+                const tailD = headD + back * trailLen;
+                const SN = 24, coords = [];
+                for (let i = 0; i <= SN; i++) {
+                    const d = Math.max(0, Math.min(idx.totalDist, tailD + (headD - tailD) * i / SN));
+                    coords.push(posAtDist(d, idx));
+                }
+                (color === '#dd1122' ? trails.red : trails.green).push({
+                    type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} });
+            }
         }
+
+        this._map.getSource('trail-red')?.setData({ type: 'FeatureCollection', features: trails.red });
+        this._map.getSource('trail-green')?.setData({ type: 'FeatureCollection', features: trails.green });
         this._map.triggerRepaint();
     },
 
@@ -1010,6 +1032,28 @@ map.on('style.load', async () => {
             layout: { 'line-cap': 'round', 'line-join': 'round' },
             paint: { 'line-color': color, 'line-opacity': 1, 'line-emissive-strength': 1,
                      'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.5, 14, 2.5, 18, 4] }
+        });
+    }
+
+    // ── Motion trail (comet tail) behind each tram, in the line colour ──────
+    // line-gradient fades transparent (tail) → bright (at the tram). Updated
+    // each frame by tramLayer.updateTrams() via the trail-red / trail-green sources.
+    for (const [id, rgb] of [['trail-red', '221,17,34'], ['trail-green', '22,163,74']]) {
+        map.addSource(id, { type: 'geojson', lineMetrics: true,
+            data: { type: 'FeatureCollection', features: [] } });
+        map.addLayer({ id, type: 'line', source: id,
+            slot: 'top',
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+                'line-emissive-strength': 1,
+                'line-blur': ['interpolate', ['linear'], ['zoom'], 11, 2, 18, 7],
+                'line-width': ['interpolate', ['linear'], ['zoom'], 11, 6, 16, 16, 20, 30],
+                'line-gradient': ['interpolate', ['linear'], ['line-progress'],
+                    0,   `rgba(${rgb},0)`,
+                    0.4, `rgba(${rgb},0.35)`,
+                    0.8, `rgba(${rgb},0.85)`,
+                    1,   `rgba(${rgb},1)`]
+            }
         });
     }
 
