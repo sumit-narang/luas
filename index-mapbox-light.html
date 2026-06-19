@@ -328,11 +328,15 @@
         </div>
     </div>
     <div class="config-row">
-        <span class="config-label">Trail</span>
-        <div class="toggle-group" id="trail-group">
+        <span class="config-label">Motion</span>
+        <div class="toggle-group" id="motion-group">
             <button class="tog" data-value="off">Off</button>
-            <button class="tog" data-value="simple">Simple</button>
-            <button class="tog active" data-value="comet">Comet ⚡</button>
+            <button class="tog active" data-value="comet">Comet</button>
+            <button class="tog" data-value="halo">Halo</button>
+            <button class="tog" data-value="chev">Chevrons</button>
+            <button class="tog" data-value="glow">Lead glow</button>
+            <button class="tog" data-value="pulse">Pulse</button>
+            <button class="tog" data-value="combo">Halo+Chev</button>
         </div>
     </div>
     </div><!-- /config-body -->
@@ -359,7 +363,7 @@ let isStandardStyle = true;  // false when light-v11 is active for monochrome
 let cfgPOI       = 'show';      // 'show' | 'hide'
 let cfgHead      = 'distinct';  // 'basic' | 'distinct'
 let cfgStopStyle = 'C';         // A | B | C | D | DC | E (C = none until zoomed in)
-let cfgTrail     = 'comet';     // 'off' | 'simple' | 'comet' (speed-driven + hot core)
+let cfgMotion    = 'comet';     // off|comet|halo|chev|glow|pulse|combo (motion accent style)
 // Timeline scrubber features (toggle live in the Timeline panel)
 let tlCfg = { hours: true, hist: true, bubble: true, daynight: false };
 let _tlCounts = null, _tlCountsKey = null;   // cached per-frame tram counts (histogram)
@@ -802,7 +806,12 @@ const tramLayer = {
             }
         }
 
-        const trails = { red: [], green: [] };   // comet-tail features per line colour
+        // Motion accents drawn on the colored track (complement the 3D tram).
+        const mode = cfgMotion;
+        const trails = { red: [], green: [] };   // comet OR leading-glow line features
+        const halo = [], chev = [], pulse = [];  // point features
+        const phase = (performance.now() / 700) % 1;
+        const pt = (c, col) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: c }, properties: { color: col } });
 
         for (const [key, { lon, lat, aheadLon, aheadLat, color, routeKey, routeDist, forward, speed }] of tramPositions) {
             const lineHex = color === '#dd1122' ? 0xdd1122 : 0x16A34A;
@@ -875,35 +884,74 @@ const tramLayer = {
                 part.geom.computeVertexNormals();
             }
 
-            // Comet trail: starts just behind the tram's rear (so the bright end
-            // isn't hidden under the 3D model) and fades out going further back.
-            // 'comet' mode → length & opacity scale with speed; 'simple' → fixed.
-            if (cfgTrail !== 'off' && idx && routeDist != null) {
-                const norm = Math.min(1, (speed || 0) / 13);   // 0 (stopped) … 1 (~47 km/h)
-                let trailLen, op;
-                if (cfgTrail === 'comet') {
-                    trailLen = VLEN * (0.5 + 2.6 * norm);      // fast → long streak
-                    op = 0.25 + 0.75 * norm;                   // fast → bright
-                } else {                                        // 'simple'
-                    trailLen = VLEN * 2.2;
-                    op = 0.9;
+            // ── Motion accents on the track ─────────────────────────────
+            if (mode !== 'off' && idx && routeDist != null) {
+                const dHere = Math.max(0, Math.min(idx.totalDist, routeDist));
+                const here  = posAtDist(dHere, idx);
+                const norm  = Math.min(1, (speed || 0) / 13);   // 0 stopped … 1 (~47 km/h)
+                const wantHalo = mode === 'halo' || mode === 'combo';
+                const wantChev = mode === 'chev' || mode === 'combo';
+
+                if (wantHalo)        halo.push(pt(here, color));
+                if (mode === 'pulse') pulse.push(pt(here, color));
+
+                // Flowing chevrons just ahead of the nose, rotated to travel bearing.
+                if (wantChev) {
+                    const a = posAtDist(Math.max(0, dHere - 6), idx);
+                    const b = posAtDist(Math.min(idx.totalDist, dHere + 6), idx);
+                    const cc = Math.cos(here[1] * Math.PI / 180);
+                    let B = Math.atan2((b[0] - a[0]) * cc, (b[1] - a[1])) * 180 / Math.PI;
+                    if (!forward) B += 180;
+                    const fdir = forward ? 1 : -1, gap = VLEN * 0.55;
+                    for (let i = 0; i < 3; i++) {
+                        const dd = dHere + fdir * (VLEN * 0.7 + (i + phase) * gap);
+                        const cd = Math.max(0, Math.min(idx.totalDist, dd));
+                        chev.push({ type: 'Feature', geometry: { type: 'Point', coordinates: posAtDist(cd, idx) },
+                            properties: { color, rot: +B.toFixed(1), op: +(0.9 - 0.25 * i).toFixed(2) } });
+                    }
                 }
-                const back = forward ? -1 : 1;                 // route direction behind
-                const headD = Math.max(0, Math.min(idx.totalDist, routeDist + back * VLEN * 0.8));
-                const tailD = headD + back * trailLen;
-                const SN = 24, coords = [];
-                for (let i = 0; i <= SN; i++) {
-                    const d = Math.max(0, Math.min(idx.totalDist, tailD + (headD - tailD) * i / SN));
-                    coords.push(posAtDist(d, idx));
+
+                // Comet (behind, fades back) OR leading glow (ahead, bright at tram).
+                // Both reuse the trail line layers (only direction/gradient order differ).
+                if (mode === 'comet' || mode === 'glow') {
+                    const SN = 24, coords = [];
+                    let op;
+                    if (mode === 'comet') {
+                        const dir = forward ? -1 : 1;
+                        const trailLen = VLEN * (0.35 + 1.2 * norm); op = 0.25 + 0.75 * norm;
+                        const headD = Math.max(0, Math.min(idx.totalDist, routeDist + dir * VLEN * 0.8));
+                        const tailD = headD + dir * trailLen;
+                        for (let i = 0; i <= SN; i++)
+                            coords.push(posAtDist(Math.max(0, Math.min(idx.totalDist, tailD + (headD - tailD) * i / SN)), idx));
+                    } else {  // glow — line runs far-ahead (transparent) → tram (bright)
+                        const fdir = forward ? 1 : -1, glowLen = VLEN * (1.1 + 1.4 * norm); op = 0.85;
+                        const farD  = dHere + fdir * glowLen;
+                        const nearD = dHere + fdir * VLEN * 0.15;
+                        for (let i = 0; i <= SN; i++)
+                            coords.push(posAtDist(Math.max(0, Math.min(idx.totalDist, farD + (nearD - farD) * i / SN)), idx));
+                    }
+                    (color === '#dd1122' ? trails.red : trails.green).push({
+                        type: 'Feature', geometry: { type: 'LineString', coordinates: coords },
+                        properties: { op: +op.toFixed(3) } });
                 }
-                (color === '#dd1122' ? trails.red : trails.green).push({
-                    type: 'Feature', geometry: { type: 'LineString', coordinates: coords },
-                    properties: { op: +op.toFixed(3) } });
             }
         }
 
-        this._map.getSource('trail-red')?.setData({ type: 'FeatureCollection', features: trails.red });
-        this._map.getSource('trail-green')?.setData({ type: 'FeatureCollection', features: trails.green });
+        const fc = a => ({ type: 'FeatureCollection', features: a });
+        this._map.getSource('trail-red')?.setData(fc(trails.red));
+        this._map.getSource('trail-green')?.setData(fc(trails.green));
+        this._map.getSource('m-halo')?.setData(fc(halo));
+        this._map.getSource('m-chev')?.setData(fc(chev));
+        this._map.getSource('m-pulse')?.setData(fc(pulse));
+
+        // Animate the expanding pulse ring (synced across trams).
+        if (mode === 'pulse' && this._map.getLayer('m-pulse')) {
+            const z = this._map.getZoom();
+            const baseR = z < 12 ? 9 : z < 16 ? 20 : 34;
+            const p = (performance.now() / 1500) % 1;
+            this._map.setPaintProperty('m-pulse', 'circle-radius', baseR * (0.45 + p * 1.3));
+            this._map.setPaintProperty('m-pulse', 'circle-stroke-opacity', (1 - p) * 0.6);
+        }
         this._map.triggerRepaint();
     },
 
@@ -1189,12 +1237,48 @@ map.on('style.load', async () => {
                 'line-blur': ['interpolate', ['linear'], ['zoom'], 11, 0.6, 18, 2],
                 'line-width': ['interpolate', ['linear'], ['zoom'], 11, 3, 16, 7, 20, 13],
                 'line-gradient': ['interpolate', ['linear'], ['line-progress'],
-                    0, `rgba(${rgb},0)`, 0.55, `rgba(${rgb},0)`, 0.85, `rgba(${rgb},0.9)`,
-                    0.97, 'rgba(255,255,255,0.95)', 1, 'rgba(255,255,255,1)']
+                    0, `rgba(${rgb},0)`, 0.6, `rgba(${rgb},0)`, 0.9, `rgba(${rgb},0.85)`, 1, `rgba(${rgb},1)`]
             }
         });
     }
-    applyTrailMode(cfgTrail);   // set initial visibility
+    // ── Other motion accents (halo / chevrons / pulse) ──────────────────
+    const EMPTY = { type: 'FeatureCollection', features: [] };
+    // Soft glow halo pinned under each tram.
+    map.addSource('m-halo', { type: 'geojson', data: EMPTY });
+    map.addLayer({ id: 'm-halo', type: 'circle', source: 'm-halo', slot: 'top',
+        paint: {
+            'circle-color': ['get', 'color'], 'circle-opacity': 0.3, 'circle-blur': 1.0,
+            'circle-radius': ['interpolate', ['linear'], ['zoom'], 11, 10, 16, 26, 20, 46],
+            'circle-pitch-alignment': 'map', 'circle-emissive-strength': 1
+        }
+    });
+    // Expanding pulse ring.
+    map.addSource('m-pulse', { type: 'geojson', data: EMPTY });
+    map.addLayer({ id: 'm-pulse', type: 'circle', source: 'm-pulse', slot: 'top',
+        paint: {
+            'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': ['get', 'color'],
+            'circle-stroke-width': 2.5, 'circle-stroke-opacity': 0.6, 'circle-radius': 14,
+            'circle-pitch-alignment': 'map', 'circle-emissive-strength': 1
+        }
+    });
+    // Flowing direction chevrons ahead of the tram.
+    map.addSource('m-chev', { type: 'geojson', data: EMPTY });
+    map.addLayer({ id: 'm-chev', type: 'symbol', source: 'm-chev', slot: 'top',
+        layout: {
+            'text-field': '▲', 'text-rotate': ['get', 'rot'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 11, 13, 16, 22, 20, 32],
+            'text-rotation-alignment': 'map', 'text-pitch-alignment': 'map',
+            'text-allow-overlap': true, 'text-ignore-placement': true,
+            'text-font': ['Inter Medium', 'Open Sans Regular', 'Arial Unicode MS Regular']
+        },
+        paint: {
+            'text-color': ['get', 'color'], 'text-opacity': ['coalesce', ['get', 'op'], 1],
+            'text-halo-color': 'rgba(255,255,255,0.55)', 'text-halo-width': 1,
+            'text-emissive-strength': 1
+        }
+    });
+
+    applyMotionMode(cfgMotion);   // set initial visibility
 
     // ── Stops ──────────────────────────────────────────────────────────
     // Terminus stops whose names are always shown (at every zoom): the two Green
@@ -1857,25 +1941,28 @@ document.getElementById('stop-style-group').addEventListener('click', e => {
     applyStopStyle(cfgStopStyle);
 });
 
-// ── Trail mode (debugger: Off / Simple / Comet) ─────────────────────────
-function applyTrailMode(mode) {
-    cfgTrail = mode;
-    activateToggle('trail-group', mode);
-    const vis = m => m === 'off' ? 'none' : 'visible';
-    const core = m => m === 'comet' ? 'visible' : 'none';   // hot core only in comet
-    for (const base of ['trail-red', 'trail-green']) {
-        if (map.getLayer(`${base}-glow`)) map.setLayoutProperty(`${base}-glow`, 'visibility', vis(mode));
-        if (map.getLayer(`${base}-core`)) map.setLayoutProperty(`${base}-core`, 'visibility', core(mode));
-    }
-    if (mode === 'off') {
-        map.getSource('trail-red')?.setData({ type: 'FeatureCollection', features: [] });
-        map.getSource('trail-green')?.setData({ type: 'FeatureCollection', features: [] });
-    }
+// ── Motion mode (debugger): off|comet|halo|chev|glow|pulse|combo ─────────
+function applyMotionMode(mode) {
+    cfgMotion = mode;
+    activateToggle('motion-group', mode);
+    const set = (id, on) => { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none'); };
+    // Comet uses glow + core; leading glow uses glow only.
+    const lineOn = mode === 'comet' || mode === 'glow';
+    set('trail-red-glow',  lineOn);  set('trail-green-glow',  lineOn);
+    set('trail-red-core',  mode === 'comet'); set('trail-green-core', mode === 'comet');
+    set('m-halo',  mode === 'halo'  || mode === 'combo');
+    set('m-chev',  mode === 'chev'  || mode === 'combo');
+    set('m-pulse', mode === 'pulse');
+    // Clear sources so nothing lingers when switching modes.
+    const EMPTY = { type: 'FeatureCollection', features: [] };
+    for (const s of ['trail-red', 'trail-green', 'm-halo', 'm-chev', 'm-pulse'])
+        map.getSource(s)?.setData(EMPTY);
+    map.triggerRepaint();
 }
-document.getElementById('trail-group').addEventListener('click', e => {
+document.getElementById('motion-group').addEventListener('click', e => {
     const btn = e.target.closest('.tog');
     if (!btn) return;
-    applyTrailMode(btn.dataset.value);
+    applyMotionMode(btn.dataset.value);
 });
 
 // ── Map-style debugger (awesome-mapbox-gl-styles) ───────────────────────
