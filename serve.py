@@ -31,11 +31,17 @@ class Handler(SimpleHTTPRequestHandler):
     def _proxy(self, path):
         target = PROD_API + path[len('/luas-api'):]
         try:
-            req = urllib.request.Request(target, headers={'Accept': 'application/json'})
+            # Ask the API for gzip and pass the compressed bytes straight through to
+            # the browser (which decompresses) — keeps the ~10x saving on both legs.
+            req = urllib.request.Request(target, headers={
+                'Accept': 'application/json', 'Accept-Encoding': 'gzip'})
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = resp.read()
                 self.send_response(200)
                 self.send_header('Content-Type', resp.headers.get('Content-Type', 'application/json'))
+                enc = resp.headers.get('Content-Encoding')
+                if enc:
+                    self.send_header('Content-Encoding', enc)
                 self.send_header('Access-Control-Allow-Origin', '*')
                 self.send_header('Content-Length', str(len(data)))
                 self.end_headers()

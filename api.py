@@ -1,14 +1,28 @@
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 import psycopg2
 import psycopg2.extras
 from datetime import datetime, timezone
+from collections import OrderedDict
+from zoneinfo import ZoneInfo
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# Per-date cache for the heavy replay-day query. Past days are immutable, so once
+# computed they never change → instant on every revisit. Today is never cached
+# (still accumulating). LRU-capped to bound memory.
+DUBLIN = ZoneInfo("Europe/Dublin")
+_replay_cache = OrderedDict()
+_REPLAY_CACHE_MAX = 20
+
 app = FastAPI()
+
+# Compress JSON responses (~10x for the big replay-day payload). Clients send
+# Accept-Encoding: gzip automatically; the dev proxy forwards it too.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 app.add_middleware(
     CORSMiddleware,
@@ -67,7 +81,21 @@ def get_replay(
 
 @app.get("/api/replay-day")
 def get_replay_day(date: str = Query(..., description="Date in YYYY-MM-DD format")):
-    """Return one observation per 30-second bucket per unique tram for a full day in Dublin local time."""
+    """Return one observation per 30-second bucket per unique tram for a full day in Dublin local time.
+
+    Only the fields the client actually uses are returned — stop coordinates and
+    line are looked up client-side from /api/stops via stop_abv, so we don't ship
+    latitude/longitude/line per row (no stops JOIN needed → smaller + faster).
+
+    Past days are immutable, so their result is cached in-process (instant revisit);
+    today is always recomputed since it's still accumulating data.
+    """
+    today = datetime.now(DUBLIN).date().isoformat()
+    cacheable = date < today
+    if cacheable and date in _replay_cache:
+        _replay_cache.move_to_end(date)          # mark recently used
+        return _replay_cache[date]
+
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""
@@ -80,12 +108,8 @@ def get_replay_day(date: str = Query(..., description="Date in YYYY-MM-DD format
             ta.stop_abv,
             ta.direction,
             ta.destination,
-            ta.due_mins,
-            s.latitude,
-            s.longitude,
-            s.line
+            ta.due_mins
         FROM tram_arrivals ta
-        JOIN stops s ON ta.stop_abv = s.stop_abv
         WHERE ta.observed_at >= (%s::date::timestamp AT TIME ZONE 'Europe/Dublin')
           AND ta.observed_at <  ((%s::date + 1)::timestamp AT TIME ZONE 'Europe/Dublin')
         ORDER BY
@@ -97,19 +121,34 @@ def get_replay_day(date: str = Query(..., description="Date in YYYY-MM-DD format
     rows = cur.fetchall()
     cur.close()
     conn.close()
-    return [dict(r) for r in rows]
+    result = [dict(r) for r in rows]
+
+    if cacheable:
+        _replay_cache[date] = result
+        _replay_cache.move_to_end(date)
+        while len(_replay_cache) > _REPLAY_CACHE_MAX:
+            _replay_cache.popitem(last=False)    # evict least-recently-used
+    return result
 
 
 @app.get("/api/dates")
 def get_dates():
+    # The collector runs 24/7, so data is continuous from the first day to the last.
+    # Instead of scanning all ~30M rows for DISTINCT dates (a ~15s seq scan), we just
+    # read the min/max observed_at (instant via the index) and fill in every day
+    # between them. Same result, ~4ms instead of ~15s.
     conn = get_db()
     cur = conn.cursor()
     cur.execute("""
-        SELECT DISTINCT DATE(observed_at AT TIME ZONE 'Europe/Dublin') as date
-        FROM tram_arrivals
-        ORDER BY date DESC
+        SELECT to_char(d, 'YYYY-MM-DD') AS date
+        FROM generate_series(
+            (SELECT (min(observed_at) AT TIME ZONE 'Europe/Dublin')::date FROM tram_arrivals),
+            (SELECT (max(observed_at) AT TIME ZONE 'Europe/Dublin')::date FROM tram_arrivals),
+            interval '1 day'
+        ) d
+        ORDER BY d DESC
     """)
-    dates = [r["date"].isoformat() for r in cur.fetchall()]
+    dates = [r["date"] for r in cur.fetchall()]
     cur.close()
     conn.close()
     return dates

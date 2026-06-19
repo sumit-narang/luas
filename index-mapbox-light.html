@@ -74,10 +74,9 @@
             cursor: pointer; user-select: none;
         }
         #date-label-chevron {
-            font-size: 18px; color: rgba(10,10,10,0.45); line-height: 1;
-            transition: color 0.15s;
+            display: block; opacity: 0.75; transition: opacity 0.15s;
         }
-        #date-label:hover #date-label-chevron { color: rgba(10,10,10,0.75); }
+        #date-label:hover #date-label-chevron { opacity: 1; }
 
         /* ── Date picker dropdown ── */
         #date-picker {
@@ -123,19 +122,12 @@
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             cursor: pointer; touch-action: none;
         }
-        #timeline-pill {
-            position: absolute; top: 6px;
-            background: #111; color: #fff;
-            font-size: 11px; font-weight: 700; letter-spacing: 0.02em;
-            padding: 3px 9px; border-radius: 20px;
-            transform: translateX(-50%); pointer-events: none;
-            white-space: nowrap; display: none;
-        }
         #timeline-hover {
-            position: absolute; top: 6px;
-            background: rgba(255,255,255,0.95); color: #333;
+            position: absolute; top: -16px;
+            background: rgba(0,0,0,0.5); color: #fff;
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
             font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
-            padding: 3px 8px; border-radius: 20px; box-shadow: 0 1px 5px rgba(0,0,0,0.18);
+            padding: 3px 8px; border-radius: 20px;
             transform: translateX(-50%); pointer-events: none;
             white-space: nowrap; display: none;
         }
@@ -251,14 +243,13 @@
 <div id="date-wheel"></div>
 <div id="date-label">
     <span id="date-label-text"></span>
-    <span id="date-label-chevron">⌃⌄</span>
+    <img id="date-label-chevron" src="dropdown.svg" alt="" width="28" height="28">
 </div>
 <div id="date-picker"></div>
 <div id="trams-count"></div>
 
 <div id="timeline-bar">
     <canvas id="timeline-canvas"></canvas>
-    <div id="timeline-pill"></div>
     <div id="timeline-hover"></div>
 </div>
 
@@ -1602,8 +1593,12 @@ function daylight(hr) {
     return (22 - hr) / 2;
 }
 
+let _tlHoverX = null;   // last hovered x in the timeline (persists across redraws)
 function drawTimeline(hoverX) {
     if (!frames.length) return;
+    // Keep the hover bubble alive during playback redraws (which call drawTimeline()
+    // with no argument) — fall back to the stored hover position.
+    if (hoverX === undefined) hoverX = _tlHoverX;
     const canvas = document.getElementById('timeline-canvas');
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.offsetWidth;
@@ -1653,6 +1648,17 @@ function drawTimeline(hoverX) {
     // ── Ticks (clean hierarchy) + interval hour labels ─────────────────
     const anchor = new Date(t0); anchor.setUTCMinutes(0, 0, 0);
     const STEP = 10 * 60 * 1000;
+    // Draw a rounded vertical line whose bottom round-cap lands exactly on baseY
+    // and that stays fully on-canvas (so the edge tick at x=0 isn't half-clipped).
+    const vline = (x, topY, width, color) => {
+        const cx = Math.max(width / 2, Math.min(w - width / 2, x));
+        ctx.beginPath();
+        ctx.moveTo(cx, topY + width / 2);
+        ctx.lineTo(cx, baseY - width / 2);   // round caps add width/2 → spans topY..baseY
+        ctx.lineWidth = width; ctx.strokeStyle = color; ctx.lineCap = 'round';
+        ctx.stroke();
+    };
+
     const hourTimes = [];
     for (let t = anchor.getTime(); t <= t1 + STEP; t += STEP) {
         const x = toX(t);
@@ -1661,10 +1667,9 @@ function drawTimeline(hoverX) {
         const isHour = min === 0, isMid = min === 30;
         if (isHour) hourTimes.push(t);
         const tickH = isHour ? 22 : isMid ? 13 : 7;
-        ctx.beginPath(); ctx.moveTo(x, baseY - tickH); ctx.lineTo(x, baseY);
-        ctx.strokeStyle = isHour ? 'rgba(0,0,0,0.32)' : isMid ? 'rgba(0,0,0,0.12)' : 'rgba(0,0,0,0.06)';
-        ctx.lineWidth = isHour ? 1.5 : 1;
-        ctx.stroke();
+        vline(x, baseY - tickH,
+            isHour ? 1.5 : 1,
+            isHour ? 'rgba(0,0,0,0.32)' : isMid ? 'rgba(0,0,0,0.12)' : 'rgba(0,0,0,0.06)');
     }
 
     if (tlCfg.hours && hourTimes.length) {
@@ -1683,37 +1688,28 @@ function drawTimeline(hoverX) {
         ctx.restore();
     }
 
-    // ── Playhead ───────────────────────────────────────────────────────
+    // ── Playhead (thin orange line, no pill) ────────────────────────────
     const headTop = Math.max(2, baseY - 30);   // confine to the scrubber zone
     if (frames[frameIndex]) {
         const px = toX(new Date(frames[frameIndex][0]).getTime());
-        ctx.beginPath(); ctx.moveTo(px, headTop); ctx.lineTo(px, baseY + 1);
-        ctx.strokeStyle = '#f97316'; ctx.lineWidth = 2; ctx.lineCap = 'round';
-        ctx.stroke();
-
-        const pill = document.getElementById('timeline-pill');
-        if (tlCfg.bubble) {
-            const pillX = Math.max(28, Math.min(w - 28, px));
-            pill.style.left = pillX + 'px';
-            pill.style.display = '';
-            pill.textContent = new Date(frames[frameIndex][0]).toLocaleTimeString('en-IE', {
-                timeZone: 'Europe/Dublin', hour: '2-digit', minute: '2-digit'
-            });
-        } else {
-            pill.style.display = 'none';
-        }
+        // Clean orange bar: bottom on the tick baseline, top just below the hour
+        // label (taller than the grey ticks so it stands out).
+        vline(px, baseY - 24, 3, '#f97316');
     }
 
     // ── Hover preview (light bubble that follows the cursor) ───────────
     const hov = document.getElementById('timeline-hover');
     if (tlCfg.bubble && hoverX != null) {
         const x = Math.max(0, Math.min(w, hoverX));
-        ctx.beginPath(); ctx.moveTo(x, headTop); ctx.lineTo(x, baseY + 1);
-        ctx.strokeStyle = 'rgba(0,0,0,0.28)'; ctx.lineWidth = 1; ctx.stroke();
+        vline(x, baseY - 24, 1.5, 'rgba(249,115,22,0.6)');   // orange, matches the playhead
         hov.style.left = Math.max(28, Math.min(w - 28, x)) + 'px';
-        hov.style.display = '';
-        hov.textContent = new Date(t0 + (x / w) * dur).toLocaleTimeString('en-IE',
+        hov.style.display = 'block';
+        // time under the cursor + how many trams were running then (the histogram value)
+        const counts = getFrameCounts();
+        const fi = Math.max(0, Math.min(frames.length - 1, Math.round((x / w) * (frames.length - 1))));
+        const hhmm = new Date(t0 + (x / w) * dur).toLocaleTimeString('en-IE',
             { timeZone: 'Europe/Dublin', hour: '2-digit', minute: '2-digit' });
+        hov.textContent = `${hhmm} · ${counts[fi]} Running`;
     } else if (hov) {
         hov.style.display = 'none';
     }
@@ -1741,12 +1737,14 @@ const tlCanvas = document.getElementById('timeline-canvas');
 tlCanvas.addEventListener('mousedown', e => { tlDragging = true; scrubTimeline(e.clientX); });
 document.addEventListener('mousemove', e => { if (tlDragging) scrubTimeline(e.clientX); });
 document.addEventListener('mouseup', () => { tlDragging = false; });
-// Hover preview (only when not dragging)
+// Hover preview (only when not dragging). Store the position so the bubble
+// survives playback redraws instead of flickering.
 tlCanvas.addEventListener('mousemove', e => {
     if (tlDragging || !frames.length) return;
-    drawTimeline(e.clientX - tlCanvas.getBoundingClientRect().left);
+    _tlHoverX = e.clientX - tlCanvas.getBoundingClientRect().left;
+    drawTimeline();
 });
-tlCanvas.addEventListener('mouseleave', () => { if (frames.length) drawTimeline(); });
+tlCanvas.addEventListener('mouseleave', () => { _tlHoverX = null; if (frames.length) drawTimeline(); });
 tlCanvas.addEventListener('touchstart', e => { scrubTimeline(e.touches[0].clientX); e.preventDefault(); }, { passive: false });
 tlCanvas.addEventListener('touchmove',  e => { scrubTimeline(e.touches[0].clientX); e.preventDefault(); }, { passive: false });
 window.addEventListener('resize', () => drawTimeline());
