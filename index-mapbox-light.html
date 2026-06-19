@@ -1365,10 +1365,12 @@ map.on('style.load', async () => {
         slot: 'top',
         filter: ['==', ['get', 'terminus'], true],
         paint: {
-            'circle-radius': 5,
-            'circle-color': '#fff',
-            'circle-stroke-width': 3,
-            'circle-stroke-color': ['get', 'color']
+            // Match the cartographic (option C) dot: line-coloured fill, white stroke
+            // — but always visible (termini show at every zoom).
+            'circle-radius': 4,
+            'circle-color': ['get', 'color'],
+            'circle-stroke-width': 1.5,
+            'circle-stroke-color': '#fff'
         }
     });
     map.addLayer({ id: 'terminus-labels', type: 'symbol', source: 'stops',
