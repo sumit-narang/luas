@@ -295,6 +295,14 @@
             <button class="tog" data-value="E">E · None</button>
         </div>
     </div>
+    <div class="config-row">
+        <span class="config-label">Trail</span>
+        <div class="toggle-group" id="trail-group">
+            <button class="tog" data-value="off">Off</button>
+            <button class="tog" data-value="simple">Simple</button>
+            <button class="tog active" data-value="comet">Comet ⚡</button>
+        </div>
+    </div>
     </div><!-- /config-body -->
 </div>
 
@@ -302,6 +310,7 @@
     <div id="sp-title">🎨 Map styles <span id="sp-chevron">▼</span></div>
     <div id="sp-body"><div id="sp-list"></div></div>
 </div>
+
 
 <script>
 const MAPBOX_TOKEN   = 'YOUR_MAPBOX_TOKEN';
@@ -318,6 +327,10 @@ let isStandardStyle = true;  // false when light-v11 is active for monochrome
 let cfgPOI       = 'show';      // 'show' | 'hide'
 let cfgHead      = 'distinct';  // 'basic' | 'distinct'
 let cfgStopStyle = 'C';         // A | B | C | D | DC | E (C = none until zoomed in)
+let cfgTrail     = 'comet';     // 'off' | 'simple' | 'comet' (speed-driven + hot core)
+// Windscreen region: a nose quad is dark glass when
+// hMin ≤ height-fraction ≤ hMax, |across|/halfWidth ≤ zMax, tMin ≤ front ≤ tMax.
+const WS = { hMin: 0.91, hMax: 1.00, zMax: 1.20, tMin: 0.00, tMax: 1.00 };
 let stopsCache      = null;
 let routesCache     = null;
 let snappedCache    = null;
@@ -468,7 +481,6 @@ const pillarMat = ()  => new THREE.MeshStandardMaterial({ color: 0xEDEFF1, metal
 const bellowsMat= ()  => new THREE.MeshStandardMaterial({ color: 0x3a3f45, metalness: 0.2,  roughness: 0.85, ...PO(-4, -8) });
 const roofMat   = ()  => new THREE.MeshStandardMaterial({ color: 0xb6bbc0, metalness: 0.2,  roughness: 0.7, ...PO(-2, -4) });
 const skirtMat  = ()  => new THREE.MeshStandardMaterial({ color: 0x202428, metalness: 0.2,  roughness: 0.8, ...PO(-1, -2) });
-const lightMat  = ()  => new THREE.MeshBasicMaterial({ color: 0xFFF3D6 });
 
 // Rounded tram cross-section (looking down the length): flat floor,
 // near-vertical sides, gently curved shoulders into a domed roof.
@@ -487,6 +499,31 @@ function bodyProfile(W, H) {
     return s;
 }
 
+// Dark articulation bellows as a band that follows the body cross-section and
+// sits slightly PROUD of the shell, so it wraps the whole perimeter (sides +
+// over the roof) and never z-fights / disappears at any zoom. halfW = half the
+// band's length along the car. Local axes match the body: x=along, y=up, z=across.
+function bellowsRing(W, H, halfW, off = 0.07) {
+    const pts = bodyProfile(W, H).getPoints(44);
+    const cy = H * 0.52;                       // cross-section centre (for outward push)
+    const ring = pts.map(p => {
+        let dx = p.x, dy = p.y - cy;
+        const dl = Math.hypot(dx, dy) || 1;
+        return [p.x + dx / dl * off, p.y + dy / dl * off];   // [across, up], pushed out
+    });
+    const verts = [];
+    for (let i = 0; i < ring.length; i++) {
+        const a = ring[i], b = ring[(i + 1) % ring.length];
+        const A = [-halfW, a[1], a[0]], B = [halfW, a[1], a[0]];
+        const C = [halfW, b[1], b[0]], D = [-halfW, b[1], b[0]];
+        verts.push(...A, ...B, ...C, ...A, ...C, ...D);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(verts), 3));
+    g.computeVertexNormals();
+    return g;
+}
+
 // Long, streamlined "bullet" cab nose (ICE-style), lofted through many
 // cross-section rings: the body profile sweeps forward while narrowing,
 // the roofline dives down and the underside lifts to a low rounded tip.
@@ -497,59 +534,70 @@ function makeNose(W, H, noseLen) {
     const n   = pts.length;
     const hf  = pts.map(p => p.y / H);          // height fraction per point
 
-    const M      = 22;        // rings along the nose
-    const tipTop = 2.25;      // roofline stays high → gentle, rounded cab (Citadis)
-    const tipBot = 0.55;      // front lower edge comes down
-    const tipW   = 0.5;       // rounded full-ish front (not a sharp point)
+    const M    = 32;          // rings along the nose
+    const yTip = 1.55;        // height of the converged tip point (blunt, upright cab)
 
+    // Half-ellipsoid nose sampled by ANGLE φ (0 = body … π/2 = tip):
+    //   x = noseLen·sinφ ,  scale = cosφ
+    // Sampling by angle clusters the rings tightly near the tip (where dx/dφ → 0)
+    // and gives a vertical tangent there, so the surface rounds smoothly to a
+    // point — a true dome with no blunt facet and no flat end-cap.
     const rings = [], ts = [];
     for (let i = 0; i <= M; i++) {
-        const t = i / M;
-        const x    = noseLen * t;
-        const topY = H - (H - tipTop) * Math.pow(t, 1.25);  // roofline curves down gently
-        const botY = tipBot * Math.pow(t, 1.35);            // underside lifts
-        const wS   = 1 - (1 - tipW) * Math.pow(t, 1.05);    // gentle width taper
+        const phi  = (i / M) * (Math.PI / 2);
+        const x    = noseLen * Math.sin(phi);
+        const r    = Math.cos(phi);                         // width/height scale → 0 at the tip
+        const topY = yTip + (H - yTip) * r;                 // roof curves down to the tip
+        const botY = yTip * (1 - r);                        // underside curves up to the tip
+        const wS   = r;                                     // width closes to the tip
         rings.push(pts.map(p => [x, botY + (p.y / H) * (topY - botY), p.x * wS]));
-        ts.push(t);
+        ts.push(i / M);
     }
 
-    const shell = [], screen = [];
+    const shell = [], screen = [], yellow = [];
     for (let i = 0; i < M; i++) {
         const tMid = (ts[i] + ts[i + 1]) / 2;
         for (let j = 0; j < n; j++) {
             const k = (j + 1) % n;
             const A = rings[i][j], B = rings[i][k], C = rings[i + 1][k], D = rings[i + 1][j];
             const hMid = (hf[j] + hf[k]) / 2;
-            // Wrap-over windscreen: upper surface near the cab; the long front
-            // taper stays body-coloured (white tip ahead, like an ICE cab).
-            const isGlass = hMid > 0.5 && tMid > 0.04 && tMid < 0.66;
-            (isGlass ? screen : shell).push(...A, ...B, ...C, ...A, ...C, ...D);
+            const axFrac = ((pts[j].x + pts[k].x) / 2) / (W / 2);
+            // physZ = actual across-position (metres). It = profileX * ringScale, so it
+            // shrinks to ~0 near the tip — letting us pick the centred front strip without
+            // grabbing the side walls (which stay wide near the body).
+            const physZ = (A[2] + B[2] + C[2] + D[2]) / 4;
+            const physZf = Math.abs(physZ) / (W / 2);
+            // Windscreen = upper, centred front (the big single window). Sides (wide
+            // physZ near body) and the lower body stay body-coloured.
+            let bucket = shell;
+            // Inclusive bounds: the flat top of the profile is exactly hMid=1.0, so a
+            // strict "< hMax" left a light gap down the centre-top. Use <= / >=.
+            if (hMid >= WS.hMin && hMid <= WS.hMax && physZf <= WS.zMax && tMid >= WS.tMin && tMid <= WS.tMax)
+                bucket = screen;  // windscreen (live-tunable)
+            else if (hMid < 0.15 && Math.abs(axFrac) < 0.6 && tMid > 0.25 && tMid < 0.95) bucket = yellow;  // lower-front smile
+            bucket.push(...A, ...B, ...C, ...A, ...C, ...D);
         }
     }
 
-    // Round off the tip: fan the final (tiny) ring to its centroid
-    const last = rings[M];
-    let cx = 0, cy = 0, cz = 0;
-    for (const p of last) { cx += p[0]; cy += p[1]; cz += p[2]; }
-    cx /= n; cy /= n; cz /= n;
-    for (let j = 0; j < n; j++) {
-        const k = (j + 1) % n;
-        shell.push(cx, cy, cz, ...last[k], ...last[j]);
-    }
+    // Tip is already a single converged point (ring M collapses to it), so the
+    // loft above closes the dome — no separate end-cap needed.
 
     const mkGeo = arr => {
         const g = new THREE.BufferGeometry();
         g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(arr), 3));
         g.computeVertexNormals();
+        // Empty bucket (possible while tuning the windscreen region) → give it a
+        // zero bounding sphere so the renderer doesn't compute a NaN radius.
+        if (arr.length === 0) g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 0);
         return g;
     };
-    return { shellGeo: mkGeo(shell), screenGeo: mkGeo(screen) };
+    return { shellGeo: mkGeo(shell), screenGeo: mkGeo(screen), yellowGeo: mkGeo(yellow) };
 }
 
 // One long tram body (single continuous mesh). isFirst = true adds the cab nose.
 // Local axes: +X = forward (toward the nose), car centred on the origin.
 const CAR_LEN  = 22;    // metres, body length (3 compartments)
-const NOSE_LEN = 3.5;   // metres, rounded cab nose ahead of the body
+const NOSE_LEN = 2.9;   // metres, short rounded Luas cab front
 function makeTramSegment(lineHex, isFirst) {
     const g   = new THREE.Group();
     const L   = CAR_LEN, H = 3.2, W = 2.65;
@@ -560,6 +608,7 @@ function makeTramSegment(lineHex, isFirst) {
         const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d, seg, 1, 1), mat);
         m.position.set(x, y, z);
         g.add(m);
+        return m;
     };
 
     // Rounded body shell (extrude the cross-section along the length).
@@ -581,14 +630,18 @@ function makeTramSegment(lineHex, isFirst) {
     for (let i = 1; i < nMul; i++)
         box(0.12, 0.96, W + 0.06, pillarMat(), -L / 2 + (i * L / nMul), 2.06, 0);
 
-    // Luas livery: yellow stripe just below the windows + thin line-colour accent
+    // Luas livery: yellow stripe just below the windows + thin yellow accent
     // just above them (kept below the roof curve at y≈2.6 so it can't paint the roof)
-    box(L * 0.99, 0.16, W + 0.05, yellowMat(),        0, 1.50, 0);  // 1.42 .. 1.58
-    box(L * 0.99, 0.07, W + 0.05, accentMat(lineHex), 0, 2.565, 0); // 2.53 .. 2.60
+    box(L * 0.99, 0.16, W + 0.05, yellowMat(), 0, 1.50,  0).userData.lodYellow = true;  // 1.42 .. 1.58
+    box(L * 0.99, 0.07, W + 0.05, yellowMat(), 0, 2.565, 0).userData.lodYellow = true;  // 2.53 .. 2.60
 
-    // Articulation: two dark bellows joints split the body into 3 compartments
-    for (const jx of [-L / 2 + L / 3, -L / 2 + 2 * L / 3])
-        box(0.55, H * 0.84, W + 0.08, bellowsMat(), jx, 1.68, 0);
+    // Articulation: two dark bellows rings split the body into 3 compartments.
+    // Built as proud perimeter bands (wrap sides + roof, no z-fight at any zoom).
+    for (const jx of [-L / 2 + L / 3, -L / 2 + 2 * L / 3]) {
+        const m = new THREE.Mesh(bellowsRing(W, H, 0.3), bellowsMat());
+        m.position.set(jx, 0, 0);
+        g.add(m);
+    }
 
     // Dark skirt / underframe
     box(L, 0.45, W - 0.04, skirtMat(), 0, 0.24, 0);
@@ -599,18 +652,25 @@ function makeTramSegment(lineHex, isFirst) {
 
     if (isFirst) {
         const NL = NOSE_LEN;
-        const { shellGeo, screenGeo } = makeNose(W, H, NL);
+        const { shellGeo, screenGeo, yellowGeo } = makeNose(W, H, NL);
         const shellMat = bodyMat(WHITE); shellMat.side = THREE.DoubleSide;
         const shell = new THREE.Mesh(shellGeo, shellMat);
         shell.position.set(L / 2, 0, 0);
         g.add(shell);
 
-        const screen = new THREE.Mesh(screenGeo, glassMat());
-        screen.position.set(L / 2, 0, 0);
-        g.add(screen);
-
-        // Yellow accent wrapping the lower cab front
-        box(NL * 0.5, 0.26, W * 0.78, yellowMat(), L / 2 + NL * 0.45, 0.95, 0);
+        // Only add the glass / yellow meshes if their bucket has geometry — an empty
+        // mesh makes Three.js compute a NaN bounding sphere (happens while tuning).
+        if (screenGeo.attributes.position.count > 0) {
+            const screen = new THREE.Mesh(screenGeo, glassMat());
+            screen.position.set(L / 2, 0, 0);
+            g.add(screen);
+        }
+        if (yellowGeo.attributes.position.count > 0) {
+            const noseYellow = new THREE.Mesh(yellowGeo, yellowMat());
+            noseYellow.position.set(L / 2, 0, 0);
+            noseYellow.userData.lodYellow = true;
+            g.add(noseYellow);
+        }
     }
 
     return g;
@@ -671,9 +731,11 @@ const tramLayer = {
     _buildTram(lineHex) {
         const group = makeTramSegment(lineHex, true);
         const parts = [];
+        const yellowMeshes = [];
         let xMin = Infinity, xMax = -Infinity;
         group.traverse(o => {
             if (!o.isMesh) return;
+            if (o.userData.lodYellow) yellowMeshes.push(o);
             const arr = o.geometry.attributes.position.array;
             const orig = new Float32Array(arr.length);
             const ox = o.position.x, oy = o.position.y, oz = o.position.z;
@@ -688,7 +750,7 @@ const tramLayer = {
                                        // would otherwise cull/flicker the mesh
             parts.push({ geom: o.geometry, orig });
         });
-        return { group, parts, xMin, xMax };
+        return { group, parts, xMin, xMax, yellowMeshes };
     },
 
     updateTrams(tramPositions) {
@@ -707,7 +769,7 @@ const tramLayer = {
 
         const trails = { red: [], green: [] };   // comet-tail features per line colour
 
-        for (const [key, { lon, lat, aheadLon, aheadLat, color, routeKey, routeDist, forward }] of tramPositions) {
+        for (const [key, { lon, lat, aheadLon, aheadLat, color, routeKey, routeDist, forward, speed }] of tramPositions) {
             const lineHex = color === '#dd1122' ? 0xdd1122 : 0x16A34A;
 
             if (!this._objs.has(key)) {
@@ -769,7 +831,9 @@ const tramLayer = {
                     const tx = TAN[k][0], tz = TAN[k][1];    // straight within a segment
                     const lz = orig[i + 2] * s;              // across-track offset
                     pos[i]     = cx - tz * lz;
-                    pos[i + 1] = orig[i + 1] * s;            // height
+                    pos[i + 1] = orig[i + 1] * s * 0.6;      // height (kept low so the
+                                                            // tall body doesn't lean off
+                                                            // the track on the tilted map)
                     pos[i + 2] = cz + tx * lz;
                 }
                 part.geom.attributes.position.needsUpdate = true;
@@ -778,11 +842,19 @@ const tramLayer = {
 
             // Comet trail: starts just behind the tram's rear (so the bright end
             // isn't hidden under the 3D model) and fades out going further back.
-            // Sampled tail→head so the line-gradient runs transparent → bright.
-            if (idx && routeDist != null) {
+            // 'comet' mode → length & opacity scale with speed; 'simple' → fixed.
+            if (cfgTrail !== 'off' && idx && routeDist != null) {
+                const norm = Math.min(1, (speed || 0) / 13);   // 0 (stopped) … 1 (~47 km/h)
+                let trailLen, op;
+                if (cfgTrail === 'comet') {
+                    trailLen = VLEN * (0.5 + 2.6 * norm);      // fast → long streak
+                    op = 0.25 + 0.75 * norm;                   // fast → bright
+                } else {                                        // 'simple'
+                    trailLen = VLEN * 2.2;
+                    op = 0.9;
+                }
                 const back = forward ? -1 : 1;                 // route direction behind
                 const headD = Math.max(0, Math.min(idx.totalDist, routeDist + back * VLEN * 0.8));
-                const trailLen = VLEN * 2.5;
                 const tailD = headD + back * trailLen;
                 const SN = 24, coords = [];
                 for (let i = 0; i <= SN; i++) {
@@ -790,7 +862,8 @@ const tramLayer = {
                     coords.push(posAtDist(d, idx));
                 }
                 (color === '#dd1122' ? trails.red : trails.green).push({
-                    type: 'Feature', geometry: { type: 'LineString', coordinates: coords }, properties: {} });
+                    type: 'Feature', geometry: { type: 'LineString', coordinates: coords },
+                    properties: { op: +op.toFixed(3) } });
             }
         }
 
@@ -807,6 +880,14 @@ const tramLayer = {
 
     render(gl, args) {
         if (!_mcRef || !this._active || !this._renderer) return;
+
+        // Level-of-detail: hide the yellow stripes when zoomed out (otherwise the
+        // bright yellow is all that reads against the map and the tram looks all-
+        // yellow). Done here so it tracks zoom even while playback is paused.
+        const showYellow = this._map.getZoom() >= 14.5;
+        for (const e of this._objs.values())
+            for (const m of e.yellowMeshes)
+                if (m.visible !== showYellow) m.visible = showYellow;
 
         // Mapbox v3 passes args object; older API passed the matrix array directly
         const mat = args?.projectionMatrix
@@ -889,9 +970,19 @@ function renderFrame(frameData, prevFrameData, duration = 180) {
         }
     }
 
+    // Per-tram real speed (m/s) over this frame interval → drives trail length/brightness
+    const dtSec = prevFrameData
+        ? Math.max(1, (new Date(frameData[0]) - new Date(prevFrameData[0])) / 1000)
+        : 1;
+    const tramSpeed = new Map();
+    for (const [key, tram] of toMap) {
+        const from = fromMap?.get(key);
+        tramSpeed.set(key, from ? Math.abs(tram.routeDist - from.routeDist) / dtSec : 7);
+    }
+
     const start = performance.now();
     function tick(now) {
-        const raw = Math.min((now - start) / duration, 1);
+        const raw = duration > 0 ? Math.min((now - start) / duration, 1) : 1;
         const t = easeInOut(raw);
 
         const tramPositions = new Map();
@@ -938,7 +1029,8 @@ function renderFrame(frameData, prevFrameData, duration = 180) {
                 color: tram.line === 'Red' ? '#dd1122' : '#16A34A',
                 routeKey: tram.routeKey,
                 routeDist: currentDist,
-                forward
+                forward,
+                speed: tramSpeed.get(key) ?? 0
             });
         }
         tramLayer.updateTrams(tramPositions);
@@ -1035,29 +1127,46 @@ map.on('style.load', async () => {
         });
     }
 
-    // ── Motion trail (comet tail) behind each tram, in the line colour ──────
-    // line-gradient fades transparent (tail) → bright (at the tram). Updated
-    // each frame by tramLayer.updateTrams() via the trail-red / trail-green sources.
-    for (const [id, rgb] of [['trail-red', '221,17,34'], ['trail-green', '22,163,74']]) {
-        map.addSource(id, { type: 'geojson', lineMetrics: true,
+    // ── Motion trail (comet tail) behind each tram ──────────────────────────
+    // Two layers per line: a soft wide GLOW + a bright thin HOT CORE that goes
+    // white at the head. Per-feature line-opacity ('op') is driven by tram speed
+    // (updateTrams), and the geometry length is too — fast trams streak, slow ones
+    // barely trail. line-gradient fades transparent (tail) → bright (head).
+    for (const [base, rgb] of [['trail-red', '221,17,34'], ['trail-green', '22,163,74']]) {
+        map.addSource(base, { type: 'geojson', lineMetrics: true,
             data: { type: 'FeatureCollection', features: [] } });
-        map.addLayer({ id, type: 'line', source: id,
-            slot: 'top',
+        map.addLayer({ id: `${base}-glow`, type: 'line', source: base, slot: 'top',
             layout: { 'line-cap': 'round', 'line-join': 'round' },
             paint: {
                 'line-emissive-strength': 1,
-                'line-blur': ['interpolate', ['linear'], ['zoom'], 11, 2, 18, 7],
-                'line-width': ['interpolate', ['linear'], ['zoom'], 11, 6, 16, 16, 20, 30],
+                'line-opacity': ['coalesce', ['get', 'op'], 1],
+                'line-blur': ['interpolate', ['linear'], ['zoom'], 11, 3, 18, 9],
+                'line-width': ['interpolate', ['linear'], ['zoom'], 11, 9, 16, 20, 20, 40],
                 'line-gradient': ['interpolate', ['linear'], ['line-progress'],
-                    0,   `rgba(${rgb},0)`,
-                    0.4, `rgba(${rgb},0.35)`,
-                    0.8, `rgba(${rgb},0.85)`,
-                    1,   `rgba(${rgb},1)`]
+                    0, `rgba(${rgb},0)`, 0.45, `rgba(${rgb},0.30)`, 0.85, `rgba(${rgb},0.8)`, 1, `rgba(${rgb},0.95)`]
+            }
+        });
+        map.addLayer({ id: `${base}-core`, type: 'line', source: base, slot: 'top',
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+                'line-emissive-strength': 1,
+                'line-opacity': ['coalesce', ['get', 'op'], 1],
+                'line-blur': ['interpolate', ['linear'], ['zoom'], 11, 0.6, 18, 2],
+                'line-width': ['interpolate', ['linear'], ['zoom'], 11, 3, 16, 7, 20, 13],
+                'line-gradient': ['interpolate', ['linear'], ['line-progress'],
+                    0, `rgba(${rgb},0)`, 0.55, `rgba(${rgb},0)`, 0.85, `rgba(${rgb},0.9)`,
+                    0.97, 'rgba(255,255,255,0.95)', 1, 'rgba(255,255,255,1)']
             }
         });
     }
+    applyTrailMode(cfgTrail);   // set initial visibility
 
     // ── Stops ──────────────────────────────────────────────────────────
+    // Terminus stops whose names are always shown (at every zoom): the two Green
+    // termini, plus the Red termini — The Point & Connolly (east) and the two
+    // western branch ends from the diversion, Tallaght & Saggart. (Green has no
+    // diversion.)
+    const TERMINI = new Set(['BRI', 'BRO', 'TPT', 'CON', 'TAL', 'SAG']);
     const stopGeoJSON = {
         type: 'FeatureCollection',
         features: stops.map(s => {
@@ -1096,7 +1205,8 @@ map.on('style.load', async () => {
             return {
                 type: 'Feature',
                 geometry: { type: 'Point', coordinates: [lon, lat] },
-                properties: { color: s.line === 'Red' ? '#ff2020' : '#16A34A', name: s.stop_name, offset_x, offset_y, anchor }
+                properties: { color: s.line === 'Red' ? '#ff2020' : '#16A34A', name: s.stop_name,
+                              offset_x, offset_y, anchor, terminus: TERMINI.has(s.stop_abv) }
             };
         })
     };
@@ -1127,6 +1237,38 @@ map.on('style.load', async () => {
             'text-color': '#fff',
             'text-halo-color': 'rgba(0,0,0,0.6)',
             'text-halo-width': 1.5
+        }
+    });
+
+    // Terminus labels — always visible at every zoom, regardless of the stop-label
+    // style (which otherwise hides names when zoomed out). Filtered to the termini.
+    map.addLayer({ id: 'terminus-dot', type: 'circle', source: 'stops',
+        slot: 'top',
+        filter: ['==', ['get', 'terminus'], true],
+        paint: {
+            'circle-radius': 5,
+            'circle-color': '#fff',
+            'circle-stroke-width': 3,
+            'circle-stroke-color': ['get', 'color']
+        }
+    });
+    map.addLayer({ id: 'terminus-labels', type: 'symbol', source: 'stops',
+        slot: 'top',
+        filter: ['==', ['get', 'terminus'], true],
+        layout: {
+            'text-field': ['get', 'name'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 9, 11, 14, 14],
+            'text-anchor': ['get', 'anchor'],
+            'text-offset': [['get', 'offset_x'], ['get', 'offset_y']],
+            'text-max-width': 10,
+            'text-font': ['Inter Medium', 'Open Sans Regular', 'Arial Unicode MS Regular'],
+            'text-allow-overlap': true,
+            'text-ignore-placement': true
+        },
+        paint: {
+            'text-color': ['get', 'color'],
+            'text-halo-color': 'rgba(255,255,255,0.95)',
+            'text-halo-width': 2
         }
     });
 
@@ -1584,6 +1726,27 @@ document.getElementById('stop-style-group').addEventListener('click', e => {
     if (!btn) return;
     cfgStopStyle = btn.dataset.value;
     applyStopStyle(cfgStopStyle);
+});
+
+// ── Trail mode (debugger: Off / Simple / Comet) ─────────────────────────
+function applyTrailMode(mode) {
+    cfgTrail = mode;
+    activateToggle('trail-group', mode);
+    const vis = m => m === 'off' ? 'none' : 'visible';
+    const core = m => m === 'comet' ? 'visible' : 'none';   // hot core only in comet
+    for (const base of ['trail-red', 'trail-green']) {
+        if (map.getLayer(`${base}-glow`)) map.setLayoutProperty(`${base}-glow`, 'visibility', vis(mode));
+        if (map.getLayer(`${base}-core`)) map.setLayoutProperty(`${base}-core`, 'visibility', core(mode));
+    }
+    if (mode === 'off') {
+        map.getSource('trail-red')?.setData({ type: 'FeatureCollection', features: [] });
+        map.getSource('trail-green')?.setData({ type: 'FeatureCollection', features: [] });
+    }
+}
+document.getElementById('trail-group').addEventListener('click', e => {
+    const btn = e.target.closest('.tog');
+    if (!btn) return;
+    applyTrailMode(btn.dataset.value);
 });
 
 // ── Map-style debugger (awesome-mapbox-gl-styles) ───────────────────────
