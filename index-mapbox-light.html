@@ -113,20 +113,15 @@
 
         /* ── Timeline (centred pill) ── */
         #timeline-bar {
-            position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%);
-            width: 55vw; min-width: 320px; max-width: 820px;
-            height: 52px; z-index: 10;
-            background: rgba(210,215,220,0.55);
-            backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
-            border: 1px solid rgba(255,255,255,0.55);
-            border-radius: 26px;
-            box-shadow: 0 4px 24px rgba(0,0,0,0.12);
-            display: none; pointer-events: none;
+            position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%);
+            width: 60vw; min-width: 320px; max-width: 880px;
+            height: 48px; z-index: 10;
+            display: none; pointer-events: none;   /* transparent — sits on the map */
         }
         #timeline-bar.active { pointer-events: auto; }
         #timeline-canvas {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            cursor: pointer; touch-action: none; border-radius: 26px;
+            cursor: pointer; touch-action: none;
         }
         #timeline-pill {
             position: absolute; top: 6px;
@@ -136,6 +131,32 @@
             transform: translateX(-50%); pointer-events: none;
             white-space: nowrap; display: none;
         }
+        #timeline-hover {
+            position: absolute; top: 6px;
+            background: rgba(255,255,255,0.95); color: #333;
+            font-size: 11px; font-weight: 600; letter-spacing: 0.02em;
+            padding: 3px 8px; border-radius: 20px; box-shadow: 0 1px 5px rgba(0,0,0,0.18);
+            transform: translateX(-50%); pointer-events: none;
+            white-space: nowrap; display: none;
+        }
+        /* ── Timeline debug panel ── */
+        #tl-panel {
+            position: fixed; bottom: 22px; right: 16px; z-index: 21; width: 190px;
+            background: rgba(255,255,255,0.9);
+            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(0,0,0,0.08); border-radius: 12px;
+            box-shadow: 0 2px 16px rgba(0,0,0,0.12); font-size: 12px;
+        }
+        #tl-title {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 10px 12px; font-weight: 700; color: #222; cursor: pointer; user-select: none;
+        }
+        #tl-chevron { transition: transform .2s; font-size: 10px; color: #aaa; }
+        #tl-chevron.open { transform: rotate(180deg); }
+        #tl-body { max-height: 0; overflow: hidden; transition: max-height .25s ease; }
+        #tl-body.open { max-height: 200px; padding-bottom: 8px; }
+        #tl-body label { display: flex; align-items: center; gap: 8px; padding: 5px 14px; color: #444; cursor: pointer; }
+        #tl-body input { accent-color: #5a5fcf; }
 
         /* ── Edge vignette blur ── */
         #edge-blur {
@@ -238,6 +259,17 @@
 <div id="timeline-bar">
     <canvas id="timeline-canvas"></canvas>
     <div id="timeline-pill"></div>
+    <div id="timeline-hover"></div>
+</div>
+
+<div id="tl-panel">
+    <div id="tl-title">🕑 Timeline <span id="tl-chevron">▼</span></div>
+    <div id="tl-body">
+        <label><input type="checkbox" id="tl-hours" checked> Hour labels</label>
+        <label><input type="checkbox" id="tl-hist" checked> Activity histogram</label>
+        <label><input type="checkbox" id="tl-bubble" checked> Time bubble + hover</label>
+        <label><input type="checkbox" id="tl-daynight"> Day/night shading</label>
+    </div>
 </div>
 
 <div id="config-panel">
@@ -328,6 +360,9 @@ let cfgPOI       = 'show';      // 'show' | 'hide'
 let cfgHead      = 'distinct';  // 'basic' | 'distinct'
 let cfgStopStyle = 'C';         // A | B | C | D | DC | E (C = none until zoomed in)
 let cfgTrail     = 'comet';     // 'off' | 'simple' | 'comet' (speed-driven + hot core)
+// Timeline scrubber features (toggle live in the Timeline panel)
+let tlCfg = { hours: true, hist: true, bubble: true, daynight: false };
+let _tlCounts = null, _tlCountsKey = null;   // cached per-frame tram counts (histogram)
 // Windscreen region: a nose quad is dark glass when
 // hMin ≤ height-fraction ≤ hMax, |across|/halfWidth ≤ zMax, tMin ≤ front ≤ tMax.
 const WS = { hMin: 0.91, hMax: 1.00, zMax: 1.20, tMin: 0.00, tMax: 1.00 };
@@ -1445,7 +1480,43 @@ document.getElementById('load-btn').addEventListener('click', () => {
 });
 
 // ── Timeline ────────────────────────────────────────────────────────────
-function drawTimeline() {
+// Dublin local hour (fractional) for a timestamp — robust to DST offset.
+function dubHour(t) {
+    const p = new Date(t).toLocaleTimeString('en-GB',
+        { timeZone: 'Europe/Dublin', hour12: false, hour: '2-digit', minute: '2-digit' });
+    const [h, m] = p.split(':').map(Number);
+    return h + m / 60;
+}
+// Compact hour label, e.g. "9am", "12pm".
+function fmtHourShort(t) {
+    return new Date(t).toLocaleTimeString('en-IE',
+        { timeZone: 'Europe/Dublin', hour: 'numeric', hour12: true })
+        .replace(/[\s.]/g, '').toLowerCase();
+}
+// Per-frame tram counts (for the histogram), cached until a new day loads.
+function getFrameCounts() {
+    const key = frames.length ? frames[0][0] : null;
+    if (_tlCountsKey === key && _tlCounts) return _tlCounts;
+    let max = 1;
+    const counts = frames.map(f => {
+        const set = new Set();
+        for (const r of f[1]) set.add(r.destination + '-' + r.direction);
+        if (set.size > max) max = set.size;
+        return set.size;
+    });
+    counts.max = max;
+    _tlCounts = counts; _tlCountsKey = key;
+    return counts;
+}
+// Soft 0..1 daylight factor by Dublin hour (dawn ~5–7, dusk ~20–22).
+function daylight(hr) {
+    if (hr <= 5 || hr >= 22) return 0;
+    if (hr < 7)  return (hr - 5) / 2;
+    if (hr <= 20) return 1;
+    return (22 - hr) / 2;
+}
+
+function drawTimeline(hoverX) {
     if (!frames.length) return;
     const canvas = document.getElementById('timeline-canvas');
     const dpr = window.devicePixelRatio || 1;
@@ -1458,70 +1529,107 @@ function drawTimeline() {
 
     const t0  = new Date(frames[0][0]).getTime();
     const t1  = new Date(frames[frames.length - 1][0]).getTime();
-    const dur = t1 - t0;
+    const dur = t1 - t0 || 1;
     const toX = t => ((t - t0) / dur) * w;
+    const baseY = h - 10;             // tick baseline
 
     ctx.clearRect(0, 0, w, h);
 
-    // Collect all hour-aligned ticks so we can label only the first and last
-    const anchor = new Date(t0);
-    anchor.setUTCMinutes(0, 0, 0);
-    const STEP = 10 * 60 * 1000;
-    const hourTicks = [];
-    for (let t = anchor.getTime(); t <= t1 + STEP; t += STEP) {
-        if (new Date(t).getUTCMinutes() === 0 && toX(t) >= 0 && toX(t) <= w) hourTicks.push(t);
+    // ── Day/night shading ─────────────────────────────────────────────
+    if (tlCfg.daynight) {
+        const grad = ctx.createLinearGradient(0, 0, w, 0);
+        for (let i = 0; i <= 12; i++) {
+            const d = daylight(dubHour(t0 + dur * i / 12));
+            // night → cool slate, day → warm light
+            const r = Math.round(40 + d * 215), g = Math.round(55 + d * 175), b = Math.round(90 + d * 70);
+            const a = (0.16 * (1 - d) + 0.10 * d).toFixed(3);
+            grad.addColorStop(i / 12, `rgba(${r},${g},${b},${a})`);
+        }
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, h);
     }
-    const labelSet = new Set([hourTicks[0], hourTicks[hourTicks.length - 1]]);
 
-    // Draw ticks
+    // ── Activity histogram (tram count over the day) ───────────────────
+    if (tlCfg.hist) {
+        const counts = getFrameCounts();
+        const topH = 24;
+        ctx.beginPath();
+        ctx.moveTo(0, baseY);
+        for (let i = 0; i < frames.length; i++) {
+            const x = toX(new Date(frames[i][0]).getTime());
+            ctx.lineTo(x, baseY - (counts[i] / counts.max) * topH);
+        }
+        ctx.lineTo(w, baseY); ctx.closePath();
+        ctx.fillStyle = 'rgba(90,95,207,0.16)';
+        ctx.fill();
+    }
+
+    // ── Ticks (clean hierarchy) + interval hour labels ─────────────────
+    const anchor = new Date(t0); anchor.setUTCMinutes(0, 0, 0);
+    const STEP = 10 * 60 * 1000;
+    const hourTimes = [];
     for (let t = anchor.getTime(); t <= t1 + STEP; t += STEP) {
         const x = toX(t);
         if (x < 0 || x > w) continue;
-        const dubMin = new Date(t).getUTCMinutes();
-        const isHour = dubMin === 0;
-        const isMid  = dubMin === 30;
-        const tickH  = isHour ? 26 : isMid ? 16 : 10;
-        const y1 = h - 10;
-        const y0 = y1 - tickH;
-        ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y1);
-        ctx.strokeStyle = isHour ? 'rgba(0,0,0,0.30)' : isMid ? 'rgba(0,0,0,0.14)' : 'rgba(0,0,0,0.08)';
+        const min = new Date(t).getUTCMinutes();
+        const isHour = min === 0, isMid = min === 30;
+        if (isHour) hourTimes.push(t);
+        const tickH = isHour ? 22 : isMid ? 13 : 7;
+        ctx.beginPath(); ctx.moveTo(x, baseY - tickH); ctx.lineTo(x, baseY);
+        ctx.strokeStyle = isHour ? 'rgba(0,0,0,0.32)' : isMid ? 'rgba(0,0,0,0.12)' : 'rgba(0,0,0,0.06)';
         ctx.lineWidth = isHour ? 1.5 : 1;
         ctx.stroke();
+    }
 
-        if (isHour && labelSet.has(t)) {
-            const label = new Date(t).toLocaleTimeString('en-IE', {
-                timeZone: 'Europe/Dublin', hour: 'numeric', minute: '2-digit', hour12: true
-            }).toLowerCase();
-            ctx.save();
-            ctx.shadowColor = 'rgba(255,255,255,0.8)';
-            ctx.shadowBlur = 4;
-            ctx.fillStyle = 'rgba(0,0,0,0.45)';
-            ctx.font = "11px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif";
-            ctx.textAlign = t === hourTicks[0] ? 'left' : 'right';
-            ctx.fillText(label, x, y0 - 5);
-            ctx.restore();
+    if (tlCfg.hours && hourTimes.length) {
+        const first = hourTimes[0], last = hourTimes[hourTimes.length - 1];
+        ctx.save();
+        ctx.font = "11px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif";
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.shadowColor = 'rgba(255,255,255,0.85)'; ctx.shadowBlur = 4;
+        for (const t of hourTimes) {
+            const hr = Math.round(dubHour(t));
+            if (!(hr % 3 === 0 || t === first || t === last)) continue;
+            const x = toX(t);
+            ctx.textAlign = t === first ? 'left' : t === last ? 'right' : 'center';
+            ctx.fillText(fmtHourShort(t), x, baseY - 26);
+        }
+        ctx.restore();
+    }
+
+    // ── Playhead ───────────────────────────────────────────────────────
+    const headTop = Math.max(2, baseY - 30);   // confine to the scrubber zone
+    if (frames[frameIndex]) {
+        const px = toX(new Date(frames[frameIndex][0]).getTime());
+        ctx.beginPath(); ctx.moveTo(px, headTop); ctx.lineTo(px, baseY + 1);
+        ctx.strokeStyle = '#f97316'; ctx.lineWidth = 2; ctx.lineCap = 'round';
+        ctx.stroke();
+
+        const pill = document.getElementById('timeline-pill');
+        if (tlCfg.bubble) {
+            const pillX = Math.max(28, Math.min(w - 28, px));
+            pill.style.left = pillX + 'px';
+            pill.style.display = '';
+            pill.textContent = new Date(frames[frameIndex][0]).toLocaleTimeString('en-IE', {
+                timeZone: 'Europe/Dublin', hour: '2-digit', minute: '2-digit'
+            });
+        } else {
+            pill.style.display = 'none';
         }
     }
 
-    // Playhead
-    if (frames[frameIndex]) {
-        const px = toX(new Date(frames[frameIndex][0]).getTime());
-        ctx.beginPath(); ctx.moveTo(px, 2); ctx.lineTo(px, h - 6);
-        ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 2; ctx.lineCap = 'round';
-        ctx.stroke();
-
-        // Dot at bottom of playhead
-        ctx.beginPath(); ctx.arc(px, h - 6, 3, 0, Math.PI * 2);
-        ctx.fillStyle = '#c0392b'; ctx.fill();
-
-        // Time pill
-        const pill = document.getElementById('timeline-pill');
-        const pillX = Math.max(28, Math.min(w - 28, px));
-        pill.style.left = pillX + 'px';
-        pill.style.display = '';
-        pill.textContent = new Date(frames[frameIndex][0]).toLocaleTimeString('en-IE', {
-            timeZone: 'Europe/Dublin', hour: '2-digit', minute: '2-digit'
-        });
+    // ── Hover preview (light bubble that follows the cursor) ───────────
+    const hov = document.getElementById('timeline-hover');
+    if (tlCfg.bubble && hoverX != null) {
+        const x = Math.max(0, Math.min(w, hoverX));
+        ctx.beginPath(); ctx.moveTo(x, headTop); ctx.lineTo(x, baseY + 1);
+        ctx.strokeStyle = 'rgba(0,0,0,0.28)'; ctx.lineWidth = 1; ctx.stroke();
+        hov.style.left = Math.max(28, Math.min(w - 28, x)) + 'px';
+        hov.style.display = '';
+        hov.textContent = new Date(t0 + (x / w) * dur).toLocaleTimeString('en-IE',
+            { timeZone: 'Europe/Dublin', hour: '2-digit', minute: '2-digit' });
+    } else if (hov) {
+        hov.style.display = 'none';
     }
 }
 
@@ -1547,9 +1655,30 @@ const tlCanvas = document.getElementById('timeline-canvas');
 tlCanvas.addEventListener('mousedown', e => { tlDragging = true; scrubTimeline(e.clientX); });
 document.addEventListener('mousemove', e => { if (tlDragging) scrubTimeline(e.clientX); });
 document.addEventListener('mouseup', () => { tlDragging = false; });
+// Hover preview (only when not dragging)
+tlCanvas.addEventListener('mousemove', e => {
+    if (tlDragging || !frames.length) return;
+    drawTimeline(e.clientX - tlCanvas.getBoundingClientRect().left);
+});
+tlCanvas.addEventListener('mouseleave', () => { if (frames.length) drawTimeline(); });
 tlCanvas.addEventListener('touchstart', e => { scrubTimeline(e.touches[0].clientX); e.preventDefault(); }, { passive: false });
 tlCanvas.addEventListener('touchmove',  e => { scrubTimeline(e.touches[0].clientX); e.preventDefault(); }, { passive: false });
-window.addEventListener('resize', drawTimeline);
+window.addEventListener('resize', () => drawTimeline());
+
+// ── Timeline debug panel ──────────────────────────────────────────────
+document.getElementById('tl-title').addEventListener('click', () => {
+    document.getElementById('tl-body').classList.toggle('open');
+    document.getElementById('tl-chevron').classList.toggle('open');
+});
+for (const [id, key] of [['tl-hours','hours'],['tl-hist','hist'],['tl-bubble','bubble'],['tl-daynight','daynight']]) {
+    document.getElementById(id).addEventListener('change', e => {
+        tlCfg[key] = e.target.checked;
+        drawTimeline();
+    });
+}
+// open by default so it's discoverable
+document.getElementById('tl-body').classList.add('open');
+document.getElementById('tl-chevron').classList.add('open');
 
 // Mouse-wheel scrolls the date wheel
 document.getElementById('date-wheel').addEventListener('wheel', e => {
