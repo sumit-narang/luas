@@ -1354,10 +1354,12 @@ map.on('style.load', async () => {
     // style (which otherwise hides names when zoomed out). Filtered to the termini.
     map.addLayer({ id: 'terminus-dot', type: 'circle', source: 'stops',
         slot: 'top',
+        // Only at zoom-out — at z≥13 the regular stop layers show every stop
+        // (incl. termini), so hide these to avoid the duplicate/overlap.
+        maxzoom: 13,
         filter: ['==', ['get', 'terminus'], true],
         paint: {
-            // Match the cartographic (option C) dot: line-coloured fill, white stroke
-            // — but always visible (termini show at every zoom).
+            // Match the cartographic (option C) dot: line-coloured fill, white stroke.
             'circle-radius': 4,
             'circle-color': ['get', 'color'],
             'circle-stroke-width': 1.5,
@@ -1366,6 +1368,7 @@ map.on('style.load', async () => {
     });
     map.addLayer({ id: 'terminus-labels', type: 'symbol', source: 'stops',
         slot: 'top',
+        maxzoom: 13,                              // hand off to regular stop labels at z≥13
         filter: ['==', ['get', 'terminus'], true],
         layout: {
             'text-field': ['get', 'name'],
@@ -1522,7 +1525,12 @@ async function loadDate(date) {
     try {
         const data = await apiFetch(`/api/replay-day?date=${date}`);
         frames = buildFrames(data);
+        // Start playback at 6am Dublin (services barely run before then) — fall back
+        // to the first frame if there's nothing that early.
         frameIndex = 0;
+        for (let i = 0; i < frames.length; i++) {
+            if (dubHour(new Date(frames[i][0]).getTime()) >= 6) { frameIndex = i; break; }
+        }
         if (frames.length > 0) {
             document.getElementById('play-btn').disabled = false;
             const tlBar = document.getElementById('timeline-bar');
@@ -1533,7 +1541,7 @@ async function loadDate(date) {
                 document.getElementById('loading-bar').style.display = 'none';
                 document.getElementById('loading-text').style.display = 'none';
             }, 1000);
-            renderFrame(frames[0], null, 0);
+            renderFrame(frames[frameIndex], null, 0);
             startPlayback();
         } else {
             setProgress(0, `No data for ${date}`);
