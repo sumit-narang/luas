@@ -141,25 +141,6 @@
             transform: translateX(-50%); pointer-events: none;
             white-space: nowrap; display: none;
         }
-        /* ── Timeline debug panel ── */
-        #tl-panel {
-            position: fixed; bottom: 22px; right: 16px; z-index: 21; width: 190px;
-            background: rgba(255,255,255,0.9);
-            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(0,0,0,0.08); border-radius: 12px;
-            box-shadow: 0 2px 16px rgba(0,0,0,0.12); font-size: 12px;
-        }
-        #tl-title {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 10px 12px; font-weight: 700; color: #222; cursor: pointer; user-select: none;
-        }
-        #tl-chevron { transition: transform .2s; font-size: 10px; color: #aaa; }
-        #tl-chevron.open { transform: rotate(180deg); }
-        #tl-body { max-height: 0; overflow: hidden; transition: max-height .25s ease; }
-        #tl-body.open { max-height: 200px; padding-bottom: 8px; }
-        #tl-body label { display: flex; align-items: center; gap: 8px; padding: 5px 14px; color: #444; cursor: pointer; }
-        #tl-body input { accent-color: #5a5fcf; }
-
         /* ── Edge vignette blur ── */
         #edge-blur {
             position: fixed; inset: 0; z-index: 5;
@@ -201,31 +182,50 @@
         }
         .tog.active { background: #5a5fcf; color: #fff; font-weight: 600; }
 
-        /* ── Map-style debugger panel ── */
-        #style-panel {
-            position: fixed; top: 150px; left: 16px; z-index: 21; width: 232px;
-            background: rgba(255,255,255,0.9);
+        /* ── Settings panel (gear, bottom-right) ── */
+        #settings-btn {
+            position: fixed; bottom: 20px; right: 18px; z-index: 22;
+            width: 40px; height: 40px; border-radius: 50%;
+            background: rgba(255,255,255,0.85); color: #444; font-size: 19px; line-height: 40px;
             backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(0,0,0,0.08); border-radius: 12px;
-            box-shadow: 0 2px 16px rgba(0,0,0,0.12); font-size: 12px;
+            border: 0.5px solid rgba(0,0,0,0.08); box-shadow: 0 2px 12px rgba(0,0,0,0.14);
+            transition: background 0.15s, transform 0.25s;
         }
-        #sp-title {
-            display: flex; justify-content: space-between; align-items: center;
-            padding: 10px 12px; font-weight: 700; color: #222;
-            cursor: pointer; user-select: none;
+        #settings-btn:hover { background: #fff; }
+        #settings-btn.open { transform: rotate(60deg); }
+        #settings-panel {
+            position: fixed; bottom: 70px; right: 18px; z-index: 22; width: 224px;
+            background: rgba(255,255,255,0.55);
+            backdrop-filter: blur(40px) saturate(180%); -webkit-backdrop-filter: blur(40px) saturate(180%);
+            border: 0.5px solid rgba(0,0,0,0.06); border-radius: 16px;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08);
+            padding: 14px 16px 16px; display: none;
+            transform-origin: bottom right;
+            animation: set-in 0.18s cubic-bezier(0.16,1,0.3,1);
         }
-        #sp-chevron { transition: transform .2s; font-size: 10px; color: #aaa; }
-        #sp-chevron.open { transform: rotate(180deg); }
-        #sp-body { max-height: 0; overflow: hidden; transition: max-height .25s ease; }
-        #sp-body.open { max-height: 64vh; overflow-y: auto; }
-        #sp-list { padding: 2px 6px 10px; }
-        .sp-group { font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
-            color: #999; padding: 9px 8px 3px; font-weight: 700; }
-        .sp-row { padding: 6px 10px; border-radius: 8px; cursor: pointer; color: #333;
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .sp-row:hover { background: rgba(0,0,0,0.06); }
-        .sp-row.active { background: #5a5fcf; color: #fff; font-weight: 600; }
-        .sp-note { font-size: 10px; color: #b04; padding: 1px 10px 4px; white-space: normal; line-height: 1.3; }
+        @keyframes set-in {
+            from { opacity: 0; transform: translateY(8px) scale(0.96); }
+            to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        #settings-panel.open { display: block; }
+        .set-section { font-size: 12px; font-weight: 700; color: #333; margin: 0 0 8px; }
+        .set-section:not(:first-child) { margin-top: 16px; }
+        /* speed row inside the panel */
+        #settings-panel #speed-group { display: flex; background: rgba(0,0,0,0.06); border-radius: 10px; padding: 3px; gap: 2px; }
+        #settings-panel .spd { flex: 1; background: transparent; border-radius: 8px; padding: 6px 0; font-size: 12px; color: #555; font-weight: 700; }
+        #settings-panel .spd.active { background: #c0392b; color: #fff; }
+        /* Caption under the speed row — updates with the selected gear */
+        #speed-caption { margin-top: 8px; font-size: 11px; font-weight: 500; color: #8a8a8f; letter-spacing: -0.01em; }
+        /* map style cards */
+        #mapstyle-cards { display: flex; gap: 10px; }
+        .ms-card { flex: 1; cursor: pointer; text-align: center; }
+        .ms-thumb {
+            height: 46px; border-radius: 10px; border: 2px solid transparent;
+            box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.1); transition: border-color 0.15s;
+        }
+        .ms-card.active .ms-thumb { border-color: #f97316; }
+        .ms-label { font-size: 11px; color: #555; margin-top: 5px; }
+        .ms-card.active .ms-label { color: #f97316; font-weight: 600; }
     </style>
 </head>
 <body>
@@ -239,12 +239,6 @@
     <div id="controls-row">
         <button id="load-btn" disabled title="Reload">↺</button>
         <button id="play-btn" disabled>▶</button>
-        <div id="speed-group">
-            <button class="spd active" data-ms="400" data-dur="280">½×</button>
-            <button class="spd" data-ms="200" data-dur="180">1×</button>
-            <button class="spd" data-ms="100" data-dur="90">2×</button>
-            <button class="spd" data-ms="40"  data-dur="35">5×</button>
-        </div>
     </div>
     <div id="loading-bar"><div id="loading-fill"></div></div>
     <div id="loading-text">Initialising map…</div>
@@ -261,16 +255,6 @@
 <div id="timeline-bar">
     <canvas id="timeline-canvas"></canvas>
     <div id="timeline-hover"></div>
-</div>
-
-<div id="tl-panel">
-    <div id="tl-title">🕑 Timeline <span id="tl-chevron">▼</span></div>
-    <div id="tl-body">
-        <label><input type="checkbox" id="tl-hours" checked> Hour labels</label>
-        <label><input type="checkbox" id="tl-hist" checked> Activity histogram</label>
-        <label><input type="checkbox" id="tl-bubble" checked> Time bubble + hover</label>
-        <label><input type="checkbox" id="tl-daynight"> Day/night shading</label>
-    </div>
 </div>
 
 <div id="config-panel">
@@ -343,9 +327,18 @@
     </div><!-- /config-body -->
 </div>
 
-<div id="style-panel">
-    <div id="sp-title">🎨 Map styles <span id="sp-chevron">▼</span></div>
-    <div id="sp-body"><div id="sp-list"></div></div>
+<button id="settings-btn" title="Settings">⚙</button>
+<div id="settings-panel">
+    <div class="set-section">Speed</div>
+    <div id="speed-group">
+        <button class="spd active" data-ms="400" data-dur="280" data-cap="Whole day in 18min">0.5x</button>
+        <button class="spd" data-ms="200" data-dur="180" data-cap="Whole day in 9min">1×</button>
+        <button class="spd" data-ms="100" data-dur="90" data-cap="Whole day in 4.5min">2×</button>
+        <button class="spd" data-ms="40"  data-dur="35" data-cap="Whole day in 2min">5×</button>
+    </div>
+    <div id="speed-caption"></div>
+    <div class="set-section">Map style</div>
+    <div id="mapstyle-cards"></div>
 </div>
 
 
@@ -657,8 +650,8 @@ function makeTramSegment(lineHex, isFirst) {
         depth: L, bevelEnabled: false, curveSegments: 10, steps: Math.max(18, Math.round(L)) });
     bodyGeo.rotateY(Math.PI / 2);
     bodyGeo.translate(-L / 2, 0, 0);
-    const WHITE = 0xEDEFF1;
-    g.add(new THREE.Mesh(bodyGeo, bodyMat(WHITE)));   // white body
+    const BODY = 0xEDEFF1;
+    g.add(new THREE.Mesh(bodyGeo, bodyMat(BODY)));   // white body
 
     // Bands are stacked in Y without overlapping (skirt → white → yellow → glass →
     // accent → white roof shoulder) and use graduated polygonOffset, so no z-fight.
@@ -693,7 +686,7 @@ function makeTramSegment(lineHex, isFirst) {
     if (isFirst) {
         const NL = NOSE_LEN;
         const { shellGeo, screenGeo, yellowGeo } = makeNose(W, H, NL);
-        const shellMat = bodyMat(WHITE); shellMat.side = THREE.DoubleSide;
+        const shellMat = bodyMat(BODY); shellMat.side = THREE.DoubleSide;
         const shell = new THREE.Mesh(shellGeo, shellMat);
         shell.position.set(L / 2, 0, 0);
         g.add(shell);
@@ -726,6 +719,16 @@ const tramLayer = {
 
     onAdd(map, gl) {
         this._map = map;
+        _mcRef = mapboxgl.MercatorCoordinate.fromLngLat([_CTR_LON, _CTR_LAT], 0);
+
+        // Build the renderer/scene/camera ONCE and keep them across style switches.
+        // setStyle() keeps the same WebGL context but calls onRemove→onAdd around the
+        // swap; creating a *second* WebGLRenderer on a context that already had one
+        // (plus a fresh empty scene) leaves rendering broken — which is why the trams
+        // worked on first load but vanished on every map-style change. So we reuse
+        // the existing renderer/scene (which still hold the trams) on re-add.
+        if (this._renderer) return;
+
         this._camera = new THREE.Camera();
         this._scene  = new THREE.Scene();
 
@@ -743,18 +746,14 @@ const tramLayer = {
             canvas: map.getCanvas(), context: gl, antialias: true
         });
         this._renderer.autoClear = false;
-
-        _mcRef = mapboxgl.MercatorCoordinate.fromLngLat([_CTR_LON, _CTR_LAT], 0);
     },
 
     onRemove() {
-        for (const e of this._objs.values()) {
-            this._scene?.remove(e.group);
-            e.group.traverse(c => { c.geometry?.dispose(); c.material?.dispose(); });
-        }
-        this._renderer?.dispose();
-        this._scene = this._camera = this._renderer = null;
-        this._objs.clear();
+        // Intentionally a no-op: Mapbox removes then immediately re-adds this layer
+        // on every setStyle(). Tearing down the renderer/scene here (and rebuilding
+        // them on the same context in onAdd) is what broke the trams after the first
+        // style change. The layer lives for the page's lifetime, so keeping the
+        // renderer + scene + trams alive is correct and leaks nothing in practice.
     },
 
     // Size the car so it's clearly visible at every zoom: ~real size (×2 ≈ 55 m)
@@ -990,6 +989,19 @@ const tramLayer = {
             .multiply(new THREE.Matrix4().makeRotationX(Math.PI / 2));
 
         this._camera.projectionMatrix = new THREE.Matrix4().fromArray(mat).multiply(l);
+
+        // Reset the GL state Mapbox leaves behind before drawing the trams.
+        // Mapbox uses the stencil buffer to clip tiles/fills and fills the depth
+        // buffer as it draws the basemap. Some styles (Positron / Dark Matter)
+        // leave the stencil test enabled with a func that rejects our tram
+        // fragments — so the tram renders last/on-top and submits geometry, yet is
+        // completely invisible. Disabling the stencil test and clearing depth makes
+        // the trams paint reliably on every basemap. (Klokantech happened to leave
+        // a permissive state, which is why it worked there but not the others.)
+        gl.disable(gl.STENCIL_TEST);
+        gl.depthMask(true);                 // Mapbox may leave depth writes off; the
+        gl.clear(gl.DEPTH_BUFFER_BIT);      // clear is a no-op unless the mask is on
+
         this._renderer.resetState();
         this._renderer.render(this._scene, this._camera);
         this._map.triggerRepaint();
@@ -1131,6 +1143,9 @@ function renderFrame(frameData, prevFrameData, duration = 180) {
 
 // ── Map ready ──────────────────────────────────────────────────────────
 map.on('style.load', async () => {
+
+    // Safety: keep mercator (the custom Three.js tram layer's matrix math assumes it).
+    map.setProjection('mercator');
 
     if (isStandardStyle) {
         map.setConfigProperty('basemap', 'colorTheme',
@@ -1767,21 +1782,6 @@ tlCanvas.addEventListener('touchstart', e => { scrubTimeline(e.touches[0].client
 tlCanvas.addEventListener('touchmove',  e => { scrubTimeline(e.touches[0].clientX); e.preventDefault(); }, { passive: false });
 window.addEventListener('resize', () => drawTimeline());
 
-// ── Timeline debug panel ──────────────────────────────────────────────
-document.getElementById('tl-title').addEventListener('click', () => {
-    document.getElementById('tl-body').classList.toggle('open');
-    document.getElementById('tl-chevron').classList.toggle('open');
-});
-for (const [id, key] of [['tl-hours','hours'],['tl-hist','hist'],['tl-bubble','bubble'],['tl-daynight','daynight']]) {
-    document.getElementById(id).addEventListener('change', e => {
-        tlCfg[key] = e.target.checked;
-        drawTimeline();
-    });
-}
-// open by default so it's discoverable
-document.getElementById('tl-body').classList.add('open');
-document.getElementById('tl-chevron').classList.add('open');
-
 // Mouse-wheel scrolls the date wheel
 document.getElementById('date-wheel').addEventListener('wheel', e => {
     e.preventDefault();
@@ -1817,6 +1817,9 @@ document.getElementById('play-btn').addEventListener('click', () => {
     }
 });
 
+function updateSpeedCaption(btn) {
+    document.getElementById('speed-caption').textContent = btn.dataset.cap || '';
+}
 document.getElementById('speed-group').addEventListener('click', e => {
     const btn = e.target.closest('.spd');
     if (!btn) return;
@@ -1824,9 +1827,12 @@ document.getElementById('speed-group').addEventListener('click', e => {
     btn.classList.add('active');
     playMs  = parseInt(btn.dataset.ms);
     playDur = parseInt(btn.dataset.dur);
+    updateSpeedCaption(btn);
     // Restart interval if already playing
     if (playing) { clearInterval(playInterval); startPlayback(); }
 });
+// Initialise the caption from the default-active gear
+updateSpeedCaption(document.querySelector('#speed-group .spd.active'));
 
 // ── Stop label styles ──────────────────────────────────────────────────
 const STOP_LABEL_STYLES = {
@@ -1983,61 +1989,8 @@ document.getElementById('motion-group').addEventListener('click', e => {
     applyMotionMode(btn.dataset.value);
 });
 
-// ── Map-style debugger (awesome-mapbox-gl-styles) ───────────────────────
-// Three groups:
-//   mapbox  → mapbox://styles/… (uses your token; always works)
-//   omt     → real OpenMapTiles style.json with {key} → MapTiler key
-//   legacy  → community styles whose upstream tilesets are deprecated/private
-//             (listed for completeness; may render blank/partial)
+// ── Map styles ──────────────────────────────────────────────────────────
 const _OMT = s => `https://raw.githubusercontent.com/openmaptiles/${s}/master/style.json`;
-const _RAW = 'https://raw.githubusercontent.com';
-const EXTRA_STYLES = [
-    { g: 'Mapbox',      name: 'Standard',            std: true,  url: 'mapbox://styles/mapbox/standard' },
-    { g: 'Mapbox',      name: 'Standard Satellite',  std: true,  url: 'mapbox://styles/mapbox/standard-satellite' },
-    { g: 'Mapbox',      name: 'Streets',             url: 'mapbox://styles/mapbox/streets-v12' },
-    { g: 'Mapbox',      name: 'Outdoors',            url: 'mapbox://styles/mapbox/outdoors-v12' },
-    { g: 'Mapbox',      name: 'Light',               url: 'mapbox://styles/mapbox/light-v11' },
-    { g: 'Mapbox',      name: 'Dark',                url: 'mapbox://styles/mapbox/dark-v11' },
-    { g: 'Mapbox',      name: 'Satellite',           url: 'mapbox://styles/mapbox/satellite-v9' },
-    { g: 'Mapbox',      name: 'Satellite Streets',   url: 'mapbox://styles/mapbox/satellite-streets-v12' },
-    { g: 'Mapbox',      name: 'Navigation Day',      url: 'mapbox://styles/mapbox/navigation-day-v1' },
-    { g: 'Mapbox',      name: 'Navigation Night',    url: 'mapbox://styles/mapbox/navigation-night-v1' },
-
-    { g: 'OpenMapTiles', name: 'Positron',           omt: true, json: _OMT('positron-gl-style') },
-    { g: 'OpenMapTiles', name: 'Dark Matter',        omt: true, json: _OMT('dark-matter-gl-style') },
-    { g: 'OpenMapTiles', name: 'OSM Bright',         omt: true, json: _OMT('osm-bright-gl-style') },
-    { g: 'OpenMapTiles', name: 'Toner',              omt: true, json: _OMT('toner-gl-style') },
-    { g: 'OpenMapTiles', name: 'Fiord Color',        omt: true, json: _OMT('fiord-color-gl-style') },
-    { g: 'OpenMapTiles', name: 'Klokantech Basic',   omt: true, json: _OMT('klokantech-basic-gl-style') },
-    { g: 'OpenMapTiles', name: 'Klokantech 3D',      omt: true, json: _OMT('klokantech-3d-gl-style') },
-    { g: 'OpenMapTiles', name: 'Klokantech Terrain', omt: true, json: _OMT('klokantech-terrain-gl-style') },
-    { g: 'OpenMapTiles', name: 'OSM Liberty',        omt: true, json: `${_RAW}/lukasmartinelli/osm-liberty/gh-pages/style.json` },
-
-    { g: 'Community (legacy)', name: 'Basic (basic-v8)',   json: `${_RAW}/mapbox/mapbox-gl-styles/master/styles/basic-v8.json` },
-    { g: 'Community (legacy)', name: 'Bright (bright-v8)', json: `${_RAW}/mapbox/mapbox-gl-styles/master/styles/bright-v8.json` },
-    { g: 'Community (legacy)', name: 'Camouflage',         json: `${_RAW}/jingsam/mapbox-gl-styles/master/Camouflage.json` },
-    { g: 'Community (legacy)', name: 'Neon',               json: `${_RAW}/NatEvatt/awesome-mapbox-gl-styles/master/styles/Neon/style.json` },
-    { g: 'Community (legacy)', name: 'Swiss Ski',          json: `${_RAW}/mapbox/mapbox-gl-swiss-ski-style/master/cij1zoclj002y8rkkdjl69psd.json` },
-    { g: 'Community (legacy)', name: 'Vintage',            json: `${_RAW}/mapbox/mapbox-gl-vintage-style/master/cif5p01n202nisaktvljx9mv3.json` },
-    { g: 'Community (legacy)', name: 'Whaam',              json: `${_RAW}/mapbox/mapbox-gl-whaam-style/master/cii8323c8004w0nlvtss3dbm2.json` },
-];
-
-function buildStylePanel() {
-    let html = '', lastG = null;
-    const haveKey = MAPTILER_KEY && MAPTILER_KEY !== 'YOUR_' + 'MAPTILER_KEY';
-    EXTRA_STYLES.forEach((d, i) => {
-        if (d.g !== lastG) {
-            html += `<div class="sp-group">${d.g}</div>`;
-            if (d.g === 'OpenMapTiles' && !haveKey)
-                html += `<div class="sp-note">⚠ add MAPTILER_KEY to .env to load these</div>`;
-            if (d.g === 'Community (legacy)')
-                html += `<div class="sp-note">upstream tilesets deprecated — may be blank</div>`;
-            lastG = d.g;
-        }
-        html += `<div class="sp-row${d.name === 'Klokantech Basic' ? ' active' : ''}" data-i="${i}">${d.name}</div>`;
-    });
-    document.getElementById('sp-list').innerHTML = html;
-}
 
 function syncStylePanel(activeIndex) {
     document.querySelectorAll('.sp-row').forEach(r =>
@@ -2066,18 +2019,55 @@ async function applyStyle(d, index) {
     }
 }
 
-document.getElementById('sp-title').addEventListener('click', () => {
-    document.getElementById('sp-body').classList.toggle('open');
-    document.getElementById('sp-chevron').classList.toggle('open');
+// ── Settings panel (speed + map style) ─────────────────────────────────
+// Three user-facing map styles, reusing applyStyle().
+// All three are OpenMapTiles JSON styles (mercator, classic GL) so the custom
+// Three.js tram layer renders identically on each. Mapbox's own v3 styles
+// (light-v11/dark-v11) break custom-layer rendering, so we use Positron / Dark
+// Matter — the equivalent light/dark CARTO basemaps — instead.
+const MAP_STYLES = [
+    { key: 'standard', label: 'Standard', name: 'Standard', json: _OMT('klokantech-basic-gl-style'),
+      thumb: 'linear-gradient(135deg,#eceae4,#dcd9d0)' },
+    { key: 'light',    label: 'Light',    name: 'Light',    json: _OMT('positron-gl-style'),
+      thumb: 'linear-gradient(135deg,#f7f7f9,#e7e7ec)' },
+    { key: 'dark',     label: 'Dark',     name: 'Dark',     json: _OMT('dark-matter-gl-style'),
+      thumb: 'linear-gradient(135deg,#3a3f47,#22262c)' },
+];
+let cfgMapStyle = 'standard';   // matches the Klokantech Basic default
+
+function buildMapStyleCards() {
+    document.getElementById('mapstyle-cards').innerHTML = MAP_STYLES.map(s =>
+        `<div class="ms-card${s.key === cfgMapStyle ? ' active' : ''}" data-key="${s.key}">
+            <div class="ms-thumb" style="background:${s.thumb}"></div>
+            <div class="ms-label">${s.label}</div>
+        </div>`).join('');
+}
+function syncMapStyleCards() {
+    document.querySelectorAll('.ms-card').forEach(c =>
+        c.classList.toggle('active', c.dataset.key === cfgMapStyle));
+}
+document.getElementById('mapstyle-cards').addEventListener('click', e => {
+    const card = e.target.closest('.ms-card');
+    if (!card) return;
+    cfgMapStyle = card.dataset.key;
+    syncMapStyleCards();
+    applyStyle(MAP_STYLES.find(s => s.key === cfgMapStyle), 0);
 });
-document.getElementById('sp-list').addEventListener('click', e => {
-    const row = e.target.closest('.sp-row');
-    if (!row) return;
-    const i = +row.dataset.i;
-    syncStylePanel(i);
-    applyStyle(EXTRA_STYLES[i], i);
+buildMapStyleCards();
+
+// Gear toggle + click-outside to close
+const _setBtn = document.getElementById('settings-btn');
+const _setPanel = document.getElementById('settings-panel');
+_setBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    const open = _setPanel.classList.toggle('open');
+    _setBtn.classList.toggle('open', open);
 });
-buildStylePanel();
+document.addEventListener('click', e => {
+    if (!_setPanel.contains(e.target) && e.target !== _setBtn) {
+        _setPanel.classList.remove('open'); _setBtn.classList.remove('open');
+    }
+});
 </script>
 </body>
 </html>
