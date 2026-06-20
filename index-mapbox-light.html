@@ -54,7 +54,7 @@
         #play-btn:disabled { background: rgba(180,180,180,0.5); color: #aaa; cursor: default; }
         #speed-group { display: flex; background: rgba(0,0,0,0.07); border-radius: 10px; padding: 2px; gap: 1px; }
         .spd { background: transparent; border-radius: 8px; padding: 3px 7px; font-size: 10px; color: #555; font-weight: 700; }
-        .spd.active { background: #c0392b; color: #fff; }
+        .spd.active { background: #f97316; color: #fff; }
         #loading-bar { height: 2px; background: rgba(0,0,0,0.08); border-radius: 1px; margin-top: 6px; overflow: hidden; }
         #loading-fill { height: 100%; background: #c0392b; width: 0%; transition: width 0.3s; }
         #loading-text { font-size: 10px; color: #888; margin-top: 3px; }
@@ -70,7 +70,6 @@
             align-items: center; gap: 8px;
             font-size: 26px; font-weight: 700; color: rgba(10,10,10,0.82);
             white-space: nowrap; letter-spacing: -0.01em;
-            text-shadow: 0 0 16px rgba(255,255,255,1), 0 0 8px rgba(255,255,255,0.9);
             cursor: pointer; user-select: none;
         }
         #date-label-chevron {
@@ -112,6 +111,16 @@
         .dp-item.dp-selected::after {
             content: url(check.svg); display: inline-block; line-height: 0;
         }
+        /* Dark map: dark frosted glass + light text (selected stays orange) */
+        body.dark #date-picker {
+            background: rgba(38,40,46,0.6);
+            border-color: rgba(255,255,255,0.10);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3);
+        }
+        body.dark .dp-item { color: rgba(255,255,255,0.92); }
+        body.dark .dp-item:hover  { background: rgba(255,255,255,0.08); }
+        body.dark .dp-item:active { background: rgba(255,255,255,0.14); }
+        body.dark .dp-item.dp-selected { color: #f97316; }
 
         #trams-count {
             position: fixed; bottom: 96px; right: 20px; z-index: 15; display: none;
@@ -128,6 +137,15 @@
             display: none; pointer-events: none;   /* transparent — sits on the map */
         }
         #timeline-bar.active { pointer-events: auto; }
+        /* Frosted backdrop behind the histogram/ticks so they read against the map.
+           Sits below the canvas; faded toward the top (and ends) so there's no hard
+           rectangle edge. */
+        #timeline-blur {
+            position: absolute; inset: 0; pointer-events: none;
+            backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+            -webkit-mask-image: radial-gradient(135% 115% at 50% 100%, #000 52%, transparent 88%);
+            mask-image: radial-gradient(135% 115% at 50% 100%, #000 52%, transparent 88%);
+        }
         #timeline-canvas {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             cursor: pointer; touch-action: none;
@@ -152,6 +170,14 @@
             -webkit-mask-image: radial-gradient(ellipse 78% 68% at 50% 50%,
                 transparent 35%, rgba(0,0,0,0.5) 58%, black 78%);
         }
+        /* Dark mode: tint the blurred edges dark so they read as a night vignette
+           instead of glowing white (the blur smears the map's light labels). */
+        body.dark #edge-blur { background: rgba(10,12,16,0.6); }
+        /* Date label flips to light text with a dark glow on the dark map. */
+        body.dark #date-label {
+            color: rgba(255,255,255,0.92);
+        }
+        body.dark #date-label-chevron { filter: invert(1) brightness(1.6); }
 
         #config-panel {
             position: fixed; top: 16px; right: 48px; z-index: 10;
@@ -186,11 +212,13 @@
         #settings-btn {
             position: fixed; bottom: 20px; right: 18px; z-index: 22;
             width: 40px; height: 40px; border-radius: 50%;
-            background: rgba(255,255,255,0.85); color: #444; font-size: 19px; line-height: 40px;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(255,255,255,0.85);
             backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
             border: 0.5px solid rgba(0,0,0,0.08); box-shadow: 0 2px 12px rgba(0,0,0,0.14);
             transition: background 0.15s, transform 0.25s;
         }
+        #settings-btn img { display: block; opacity: 0.7; }
         #settings-btn:hover { background: #fff; }
         #settings-btn.open { transform: rotate(60deg); }
         #settings-panel {
@@ -213,7 +241,7 @@
         /* speed row inside the panel */
         #settings-panel #speed-group { display: flex; background: rgba(0,0,0,0.06); border-radius: 10px; padding: 3px; gap: 2px; }
         #settings-panel .spd { flex: 1; background: transparent; border-radius: 8px; padding: 6px 0; font-size: 12px; color: #555; font-weight: 700; }
-        #settings-panel .spd.active { background: #c0392b; color: #fff; }
+        #settings-panel .spd.active { background: #f97316; color: #fff; }
         /* Caption under the speed row — updates with the selected gear */
         #speed-caption { margin-top: 8px; font-size: 11px; font-weight: 500; color: #8a8a8f; letter-spacing: -0.01em; }
         /* map style cards */
@@ -224,8 +252,6 @@
             box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.1); transition: border-color 0.15s;
         }
         .ms-card.active .ms-thumb { border-color: #f97316; }
-        .ms-label { font-size: 11px; color: #555; margin-top: 5px; }
-        .ms-card.active .ms-label { color: #f97316; font-weight: 600; }
     </style>
 </head>
 <body>
@@ -253,6 +279,7 @@
 <div id="trams-count"></div>
 
 <div id="timeline-bar">
+    <div id="timeline-blur"></div>
     <canvas id="timeline-canvas"></canvas>
     <div id="timeline-hover"></div>
 </div>
@@ -327,7 +354,7 @@
     </div><!-- /config-body -->
 </div>
 
-<button id="settings-btn" title="Settings">⚙</button>
+<button id="settings-btn" title="Settings"><img src="settings.svg" alt="Settings" width="20" height="20"></button>
 <div id="settings-panel">
     <div class="set-section">Speed</div>
     <div id="speed-group">
@@ -1408,7 +1435,9 @@ map.on('style.load', async () => {
         paint: {
             'text-color': ['get', 'color'],
             'text-halo-color': 'rgba(255,255,255,0.95)',
-            'text-halo-width': 2
+            // White halo helps the coloured names read on the beige Standard map;
+            // on Light and Dark the names are already legible, so drop it.
+            'text-halo-width': cfgMapStyle === 'standard' ? 2 : 0
         }
     });
 
@@ -1641,6 +1670,16 @@ function drawTimeline(hoverX) {
     const ctx = canvas.getContext('2d');
     ctx.scale(dpr, dpr);
 
+    // Dark map → light ticks/labels/histogram; otherwise the dark-on-dark
+    // timeline is invisible. (Playhead/hover stay orange — readable on both.)
+    const dark = document.body.classList.contains('dark');
+    const inkHi  = dark ? 'rgba(255,255,255,0.42)' : 'rgba(0,0,0,0.32)';
+    const inkMid = dark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)';
+    const inkLo  = dark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)';
+    const labelInk    = dark ? 'rgba(255,255,255,0.72)' : 'rgba(0,0,0,0.5)';
+    const labelShadow = dark ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.85)';
+    const histFill    = dark ? 'rgba(255,255,255,0.16)' : 'rgba(90,95,207,0.16)';
+
     const t0  = new Date(frames[0][0]).getTime();
     const t1  = new Date(frames[frames.length - 1][0]).getTime();
     const dur = t1 - t0 || 1;
@@ -1674,7 +1713,7 @@ function drawTimeline(hoverX) {
             ctx.lineTo(x, baseY - (counts[i] / counts.max) * topH);
         }
         ctx.lineTo(w, baseY); ctx.closePath();
-        ctx.fillStyle = 'rgba(90,95,207,0.16)';
+        ctx.fillStyle = histFill;
         ctx.fill();
     }
 
@@ -1702,15 +1741,15 @@ function drawTimeline(hoverX) {
         const tickH = isHour ? 22 : isMid ? 13 : 7;
         vline(x, baseY - tickH,
             isHour ? 1.5 : 1,
-            isHour ? 'rgba(0,0,0,0.32)' : isMid ? 'rgba(0,0,0,0.12)' : 'rgba(0,0,0,0.06)');
+            isHour ? inkHi : isMid ? inkMid : inkLo);
     }
 
     if (tlCfg.hours && hourTimes.length) {
         const first = hourTimes[0], last = hourTimes[hourTimes.length - 1];
         ctx.save();
         ctx.font = "11px 'Inter', -apple-system, BlinkMacSystemFont, sans-serif";
-        ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        ctx.shadowColor = 'rgba(255,255,255,0.85)'; ctx.shadowBlur = 4;
+        ctx.fillStyle = labelInk;
+        ctx.shadowColor = labelShadow; ctx.shadowBlur = 4;
         for (const t of hourTimes) {
             const hr = Math.round(dubHour(t));
             if (!(hr % 3 === 0 || t === first || t === last)) continue;
@@ -1999,6 +2038,9 @@ function syncStylePanel(activeIndex) {
 
 async function applyStyle(d, index) {
     isStandardStyle = !!d.std;
+    // Theme the HTML overlays (edge vignette, date label, timeline) for the dark map.
+    document.body.classList.toggle('dark', d.key === 'dark');
+    if (typeof frames !== 'undefined' && frames.length) drawTimeline();
     const lb = document.getElementById('loading-bar'), lt = document.getElementById('loading-text');
     lb.style.display = ''; lt.style.display = '';
     setProgress(15, `Loading style: ${d.name}…`);
@@ -2037,9 +2079,8 @@ let cfgMapStyle = 'standard';   // matches the Klokantech Basic default
 
 function buildMapStyleCards() {
     document.getElementById('mapstyle-cards').innerHTML = MAP_STYLES.map(s =>
-        `<div class="ms-card${s.key === cfgMapStyle ? ' active' : ''}" data-key="${s.key}">
+        `<div class="ms-card${s.key === cfgMapStyle ? ' active' : ''}" data-key="${s.key}" title="${s.label}">
             <div class="ms-thumb" style="background:${s.thumb}"></div>
-            <div class="ms-label">${s.label}</div>
         </div>`).join('');
 }
 function syncMapStyleCards() {
