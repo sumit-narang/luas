@@ -25,6 +25,18 @@
         #map-credit a { color: inherit; text-decoration: none; }
         #map-credit a:hover { text-decoration: underline; }
         body.dark #map-credit { color: rgba(255,255,255,0.45); }
+        /* On-screen debugger */
+        #debug-panel {
+            position: fixed; top: 86px; left: 18px; z-index: 25;
+            background: rgba(0,0,0,0.62); color: #fff;
+            backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+            font-size: 11px; font-weight: 500; line-height: 1.4;
+            padding: 7px 10px; border-radius: 8px;
+            display: flex; flex-direction: column; gap: 5px;
+        }
+        #debug-panel b { color: #f97316; font-variant-numeric: tabular-nums; }
+        #debug-panel label { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+        #debug-panel input { cursor: pointer; }
 
         /* ── LUAS logo ── */
         #luas-logo {
@@ -279,6 +291,11 @@
 <div id="map"></div>
 <div id="edge-blur"></div>
 <div id="map-credit">© <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noopener">Mapbox</a> · <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · <a href="https://www.maptiler.com/copyright/" target="_blank" rel="noopener">MapTiler</a></div>
+
+<div id="debug-panel">
+    <div>zoom <b id="dbg-zoom">–</b></div>
+    <label><input type="checkbox" id="dbg-hide-labels"> hide stop labels</label>
+</div>
 
 <div id="luas-logo">LUAS</div>
 
@@ -1396,6 +1413,7 @@ map.on('style.load', async () => {
     map.addSource('stops', { type: 'geojson', data: stopGeoJSON });
     map.addLayer({ id: 'stops-dot', type: 'circle', source: 'stops',
         slot: 'top',
+        minzoom: 10,                              // dots + labels only from z10 up
         paint: {
             'circle-radius': 4,
             'circle-color': '#111',
@@ -1405,7 +1423,7 @@ map.on('style.load', async () => {
     });
     map.addLayer({ id: 'stop-labels', type: 'symbol', source: 'stops',
         slot: 'top',
-        minzoom: 11,
+        minzoom: 10,
         layout: {
             'text-field': ['get', 'name'],
             'text-size': ['interpolate', ['linear'], ['zoom'], 11, 10, 13, 13, 15, 15],
@@ -1427,8 +1445,10 @@ map.on('style.load', async () => {
     // style (which otherwise hides names when zoomed out). Filtered to the termini.
     map.addLayer({ id: 'terminus-dot', type: 'circle', source: 'stops',
         slot: 'top',
-        // Only at zoom-out — at z≥13 the regular stop layers show every stop
-        // (incl. termini), so hide these to avoid the duplicate/overlap.
+        // Shown z10–13: below z10 the map is too zoomed out for any stops; at z≥13
+        // the regular stop layers show every stop (incl. termini), so hide these
+        // to avoid the duplicate/overlap.
+        minzoom: 10,
         maxzoom: 13,
         filter: ['==', ['get', 'terminus'], true],
         paint: {
@@ -1441,7 +1461,8 @@ map.on('style.load', async () => {
     });
     map.addLayer({ id: 'terminus-labels', type: 'symbol', source: 'stops',
         slot: 'top',
-        maxzoom: 13,                              // hand off to regular stop labels at z≥13
+        minzoom: 10,                              // z10–13, then hand off to regular stop labels
+        maxzoom: 13,
         filter: ['==', ['get', 'terminus'], true],
         layout: {
             'text-field': ['get', 'name'],
@@ -1463,6 +1484,7 @@ map.on('style.load', async () => {
     });
 
     applyStopStyle(cfgStopStyle);
+    applyDbgLabels();   // re-apply the debugger's hide-labels toggle after re-add
 
     // ── Three.js 3D tram layer ───────────────────────────────────────
     map.addLayer(tramLayer);
@@ -1934,6 +1956,22 @@ const STOP_LABEL_STYLES = {
         paint:  { 'text-color': 'rgba(0,0,0,0)', 'text-halo-color': 'rgba(0,0,0,0)', 'text-halo-width': 0 }
     }
 };
+
+// ── On-screen debugger: live zoom + hide-all-stop-labels toggle ──────────
+const _dbgZoom = document.getElementById('dbg-zoom');
+function updateDbgZoom() { _dbgZoom.textContent = map.getZoom().toFixed(2); }
+map.on('zoom', updateDbgZoom);
+updateDbgZoom();
+
+let dbgHideLabels = false;
+function applyDbgLabels() {
+    for (const id of ['stop-labels', 'terminus-labels'])
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', dbgHideLabels ? 'none' : 'visible');
+}
+document.getElementById('dbg-hide-labels').addEventListener('change', e => {
+    dbgHideLabels = e.target.checked;
+    applyDbgLabels();
+});
 
 function applyStopStyle(key) {
     if (!map.getLayer('stops-dot') || !map.getLayer('stop-labels')) return;
