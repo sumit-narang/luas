@@ -872,7 +872,12 @@ const tramLayer = {
                     let op;
                     if (mode === 'comet') {
                         const dir = forward ? -1 : 1;
-                        const trailLen = VLEN * (0.35 + 1.2 * norm); op = 0.25 + 0.75 * norm;
+                        // Consistent comet while moving; fades + shrinks to nothing when
+                        // the tram is essentially stopped (dwelling at a stop/terminus),
+                        // so a stationary tram doesn't show a misleading streak.
+                        const moveGate = Math.min(1, (speed || 0) / 2.5);   // 0 stopped … 1 moving
+                        const trailLen = VLEN * (0.1 + 1.15 * moveGate);
+                        op = 0.55 * moveGate;
                         const headD = Math.max(0, Math.min(idx.totalDist, routeDist + dir * VLEN * 0.8));
                         const tailD = headD + dir * trailLen;
                         for (let i = 0; i <= SN; i++)
@@ -1022,11 +1027,13 @@ function buildTrips(events) {
             let best = null, bestGap = Infinity;
             for (const tr of open) {
                 const dt = (it.t - tr.lastT) / 1000;
-                if (dt <= 0 || dt > 420) continue;                 // within 7 min
-                if (termD != null && Math.abs(termD - it.d) > Math.abs(termD - tr.lastD) - 1) continue; // toward terminus
+                if (dt <= 0 || dt > 600) continue;                 // bridge gaps up to ~10 min
+                // Keep moving toward the terminus, allowing small backward jitter from
+                // projection noise (so one tram isn't split into two over a wobble).
+                if (termD != null && (Math.abs(termD - tr.lastD) - Math.abs(termD - it.d)) < -80) continue;
                 const gap = Math.abs(it.d - tr.lastD);
                 const spd = gap / dt;
-                if (spd < 0.5 || spd > 30) continue;               // 0.5–30 m/s
+                if (spd < 0.3 || spd > 32) continue;               // ~1–115 km/h
                 if (gap < bestGap) { best = tr; bestGap = gap; }
             }
             if (best) { best.wp.push(it); best.lastT = it.t; best.lastD = it.d; }
@@ -1043,6 +1050,25 @@ function buildTrips(events) {
                             .filter(w => w.d != null)
                             .sort((a, b) => a.t - b.t);
             if (wp.length < 3) continue;
+            // Extend a trip to its known destination terminus when its captured stop
+            // data runs out early. We verified across many random days that these
+            // mid-line "endings" cluster at the SAME few low-DUE stops (Broadstone,
+            // Grangegorman, Phibsborough, O'Connell…) in the same proportion every day
+            // — a systematic data-capture gap, not breakdowns — so the tram really did
+            // continue to its stated destination. Capped at ~5 km so a trip ending very
+            // far short (a possible genuine fault / short-turn) is left as-is.
+            // Interpolation follows the real track, so the tram glides through the
+            // missed stops on the way to the terminus.
+            const termDF = termAbv != null ? stopDistOn(termAbv, routeKey) : null;
+            if (termDF != null) {
+                const last = wp[wp.length - 1], gapToTerm = Math.abs(termDF - last.d);
+                if (gapToTerm > 120 && gapToTerm < 5000) {        // up to ~6 stops, not already there
+                    const p = wp[wp.length - 2];
+                    let v = Math.abs(last.d - p.d) / Math.max(1, (last.t - p.t) / 1000);
+                    v = Math.min(12, Math.max(5, v || 8));        // clamp to a sane cruising speed
+                    wp.push({ t: last.t + Math.round(gapToTerm / v * 1000), d: termDF });
+                }
+            }
             out.push({ id: 'T' + (tid++), routeKey, line, dest, dir, wp, t0: wp[0].t, t1: wp[wp.length - 1].t });
         }
     }
