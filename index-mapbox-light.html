@@ -289,10 +289,10 @@
 <div id="settings-panel">
     <div class="set-section">Speed</div>
     <div id="speed-group">
-        <button class="spd active" data-ms="400" data-dur="280" data-cap="Whole day in 18min">0.5x</button>
-        <button class="spd" data-ms="200" data-dur="180" data-cap="Whole day in 9min">1x</button>
-        <button class="spd" data-ms="100" data-dur="90" data-cap="Whole day in 4.5min">2x</button>
-        <button class="spd" data-ms="40"  data-dur="35" data-cap="Whole day in 2min">5x</button>
+        <button class="spd active" data-mins="6" data-cap="Whole day in 6min">0.5x</button>
+        <button class="spd" data-mins="3"   data-cap="Whole day in 3min">1x</button>
+        <button class="spd" data-mins="1.5" data-cap="Whole day in 1.5min">2x</button>
+        <button class="spd" data-mins="0.5" data-cap="Whole day in 30s">5x</button>
     </div>
     <div id="speed-caption"></div>
     <div class="set-section">Map style</div>
@@ -963,36 +963,123 @@ const tramLayer = {
 };
 
 
-function getTramMap(frameData) {
-    const trams = new Map();
-    frameData[1].forEach(row => {
-        const s = stops.find(s => s.stop_abv === row.stop_abv);
-        if (!s) return;
-        const key = `${row.destination}-${row.direction}`;
-        if (!trams.has(key) || trams.get(key).due_mins > row.due_mins) {
-            const proj = stopRouteProj[row.stop_abv] || { dist: 0, routeKey: s.line === 'Green' ? 'Green' : 'Red-Tallaght' };
-            trams.set(key, { ...row, stop_lat: s.latitude, stop_lon: s.longitude, line: s.line,
-                routeDist: proj.dist, routeKey: proj.routeKey });
-        }
-    });
-    return trams;
+// ── Tram reconstruction from stop-visit events ───────────────────────────
+// The Luas feed has no vehicle id, so we rebuild individual trams from the
+// /api/trips-day events (a tram is "at" a stop when due_mins hits 0). We chain
+// those visits into trips by route order + time, then interpolate each tram's
+// position along the route by time. This replaces the old model that collapsed
+// every same-destination tram into one (which made them teleport / vanish).
+let trips = [];   // [{ id, routeKey, line, dest, dir, wp:[{t,d}], t0, t1 }]
+
+// Red-line branch membership (trunk stops belong to neither set).
+const SAGGART_SET  = new Set(['SDK','MYS','GDK','FET','CVN','CIT','FOR','SAG']);
+const TALLAGHT_SET = new Set(['GOL','DRI','BLA','BLU','KYL','RED','KIN','BEL','COO','HOS','TAL']);
+
+// Stop distance along a given route polyline (projected on demand, cached).
+const _distCache = {};
+function stopDistOn(stopAbv, routeKey) {
+    let c = _distCache[routeKey] || (_distCache[routeKey] = {});
+    if (stopAbv in c) return c[stopAbv];
+    const s = stops.find(s => s.stop_abv === stopAbv);
+    const idx = routeIndexes[routeKey];
+    c[stopAbv] = (s && idx) ? projectOntoRoute(s.longitude, s.latitude, idx) : null;
+    return c[stopAbv];
 }
 
-function buildFrames(data) {
-    // Sort by timestamp, then merge observations within 20s of each frame's anchor
-    // — the scraper polls Red and Green separately so their timestamps are offset
-    const sorted = [...data].sort((a, b) => a.observed_at.localeCompare(b.observed_at));
-    const frames = [];
-    for (const row of sorted) {
-        const t = new Date(row.observed_at).getTime();
-        const last = frames[frames.length - 1];
-        if (last && t - new Date(last[0]).getTime() <= 20000) {
-            last[1].push(row);
-        } else {
-            frames.push([row.observed_at, [row]]);
+function buildTrips(events) {
+    const nameToAbv = {};
+    stops.forEach(s => { nameToAbv[s.stop_name] = s.stop_abv; });
+    const lineOf = abv => (stops.find(s => s.stop_abv === abv) || {}).line;
+
+    // group events by destination+direction
+    const groups = new Map();
+    for (const e of events) {
+        const k = e.destination + '|' + e.direction;
+        (groups.get(k) || groups.set(k, []).get(k)).push(e);
+    }
+
+    const out = [];
+    let tid = 0;
+    for (const [k, evs] of groups) {
+        const [dest, dir] = k.split('|');
+        const line = lineOf(evs[0].stop_abv);
+        if (!line) continue;
+        // Route used for *ordering* the chain (trunk geometry is ~identical on both
+        // red branches, so Tallaght works for trunk + Tallaght/Point/Connolly).
+        const orderKey = line === 'Green' ? 'Green'
+                       : dest === 'Saggart' ? 'Red-Saggart' : 'Red-Tallaght';
+        const termAbv = nameToAbv[dest];
+        const termD   = termAbv != null ? stopDistOn(termAbv, orderKey) : null;
+
+        const items = evs.map(e => ({ t: e.t * 1000, stop: e.stop_abv, d: stopDistOn(e.stop_abv, orderKey) }))
+                         .filter(x => x.d != null)
+                         .sort((a, b) => a.t - b.t);
+
+        // Greedy chain: each visit joins the open trip it best continues (closest in
+        // route distance) while moving toward the terminus at a plausible speed.
+        const open = [];
+        for (const it of items) {
+            let best = null, bestGap = Infinity;
+            for (const tr of open) {
+                const dt = (it.t - tr.lastT) / 1000;
+                if (dt <= 0 || dt > 420) continue;                 // within 7 min
+                if (termD != null && Math.abs(termD - it.d) > Math.abs(termD - tr.lastD) - 1) continue; // toward terminus
+                const gap = Math.abs(it.d - tr.lastD);
+                const spd = gap / dt;
+                if (spd < 0.5 || spd > 30) continue;               // 0.5–30 m/s
+                if (gap < bestGap) { best = tr; bestGap = gap; }
+            }
+            if (best) { best.wp.push(it); best.lastT = it.t; best.lastD = it.d; }
+            else open.push({ wp: [it], lastT: it.t, lastD: it.d });
+        }
+
+        for (const tr of open) {
+            if (tr.wp.length < 3) continue;                        // ignore stubs
+            // Resolve the actual branch for ambiguous trunk-bound destinations.
+            let routeKey = orderKey;
+            if (line === 'Red' && (dest === 'The Point' || dest === 'Connolly'))
+                routeKey = tr.wp.some(w => SAGGART_SET.has(w.stop)) ? 'Red-Saggart' : 'Red-Tallaght';
+            const wp = tr.wp.map(w => ({ t: w.t, d: stopDistOn(w.stop, routeKey) }))
+                            .filter(w => w.d != null)
+                            .sort((a, b) => a.t - b.t);
+            if (wp.length < 3) continue;
+            out.push({ id: 'T' + (tid++), routeKey, line, dest, dir, wp, t0: wp[0].t, t1: wp[wp.length - 1].t });
         }
     }
-    return frames;
+    return out;
+}
+
+function tripDistAt(tr, tMs) {
+    const wp = tr.wp;
+    if (tMs <= wp[0].t) return wp[0].d;
+    if (tMs >= wp[wp.length - 1].t) return wp[wp.length - 1].d;
+    let lo = 0, hi = wp.length - 1;
+    while (lo < hi - 1) { const mid = (lo + hi) >> 1; if (wp[mid].t <= tMs) lo = mid; else hi = mid; }
+    const f = (tMs - wp[lo].t) / (wp[hi].t - wp[lo].t);
+    return wp[lo].d + (wp[hi].d - wp[lo].d) * f;
+}
+
+// One entry per active tram (trip) at the frame's time — same shape renderFrame
+// expects (routeKey + routeDist + line); the per-trip id keeps trams distinct.
+function getTramMap(frameData) {
+    const tMs = new Date(frameData[0]).getTime();
+    const m = new Map();
+    for (const tr of trips) {
+        if (tMs < tr.t0 || tMs > tr.t1) continue;
+        m.set(tr.id, { routeKey: tr.routeKey, routeDist: tripDistAt(tr, tMs), line: tr.line });
+    }
+    return m;
+}
+
+// Regular time grid spanning the day's trips (renderFrame lerps between grid steps).
+function buildFrames(eventsOrTrips) {
+    if (!trips.length) return [];
+    let t0 = Infinity, t1 = -Infinity;
+    for (const tr of trips) { if (tr.t0 < t0) t0 = tr.t0; if (tr.t1 > t1) t1 = tr.t1; }
+    const STEP = 15000;
+    const fr = [];
+    for (let t = t0; t <= t1; t += STEP) fr.push([new Date(t).toISOString()]);
+    return fr;
 }
 
 function renderFrame(frameData, prevFrameData, duration = 180) {
@@ -1063,10 +1150,11 @@ function renderFrame(frameData, prevFrameData, duration = 180) {
                     aheadLat = lerp(frLat, toLat, Math.min(1, t + 0.1));
                 }
             } else {
-                if (idx && proj) {
-                    currentDist = proj.dist;
-                    [lon, lat] = posAtDist(proj.dist, idx);
-                    const aD = Math.max(0, Math.min(idx.totalDist, proj.dist + step));
+                // First appearance of this trip — place it at its current route distance.
+                if (idx && tram.routeDist != null) {
+                    currentDist = tram.routeDist;
+                    [lon, lat] = posAtDist(currentDist, idx);
+                    const aD = Math.max(0, Math.min(idx.totalDist, currentDist + step));
                     [aheadLon, aheadLat] = posAtDist(aD, idx);
                 } else {
                     currentDist = 0;
@@ -1510,8 +1598,10 @@ async function loadDate(date) {
     document.getElementById('loading-text').style.display = '';
     setProgress(0, `Loading ${date}…`);
     try {
-        const data = await apiFetch(`/api/replay-day?date=${date}`);
-        frames = buildFrames(data);
+        const data = await apiFetch(`/api/trips-day?date=${date}`);
+        trips = buildTrips(data);
+        frames = buildFrames();
+        applySpeedTiming();   // derive per-frame interval from the new frame count
         // Start playback at 9am Dublin — fall back to the first frame if there's
         // nothing that early.
         frameIndex = 0;
@@ -1571,10 +1661,11 @@ function getFrameCounts() {
     if (_tlCountsKey === key && _tlCounts) return _tlCounts;
     let max = 1;
     const counts = frames.map(f => {
-        const set = new Set();
-        for (const r of f[1]) set.add(r.destination + '-' + r.direction);
-        if (set.size > max) max = set.size;
-        return set.size;
+        const t = new Date(f[0]).getTime();
+        let n = 0;
+        for (const tr of trips) if (t >= tr.t0 && t <= tr.t1) n++;
+        if (n > max) max = n;
+        return n;
     });
     counts.max = max;
     _tlCounts = counts; _tlCountsKey = key;
@@ -1734,6 +1825,7 @@ function scrubTimeline(clientX) {
         if (new Date(frames[mid][0]).getTime() < target) lo = mid + 1; else hi = mid;
     }
     frameIndex = lo;
+    _simT = new Date(frames[frameIndex][0]).getTime();   // keep playback time in sync
     renderFrame(frames[frameIndex], frameIndex > 0 ? frames[frameIndex - 1] : null, 100);
 }
 
@@ -1766,17 +1858,32 @@ document.getElementById('date-wheel').addEventListener('wheel', e => {
     }
 }, { passive: false });
 
+let _simT = 0;   // current simulated time (ms epoch)
 function startPlayback() {
     const btn = document.getElementById('play-btn');
+    if (!frames.length) return;
     playing = true; btn.textContent = '⏸';
+    const t0 = new Date(frames[0][0]).getTime();
+    const t1 = new Date(frames[frames.length - 1][0]).getTime();
+    const span = Math.max(1, t1 - t0);
+    if (_simT < t0 || _simT >= t1) _simT = new Date(frames[frameIndex][0]).getTime();
+    let prev = [new Date(_simT).toISOString()];
+    let lastReal = performance.now();
     playInterval = setInterval(() => {
-        if (frameIndex >= frames.length - 1) {
-            clearInterval(playInterval); playing = false;
-            btn.textContent = '▶'; return;
+        const now = performance.now();
+        const dtReal = now - lastReal; lastReal = now;   // actual elapsed (jitter-proof)
+        const scale = span / (activeSpeedMins() * 60000); // sim-ms per real-ms
+        _simT += dtReal * scale;
+        if (_simT >= t1) {
+            _simT = t1; frameIndex = frames.length - 1;
+            renderFrame(frames[frameIndex], prev, 0);
+            clearInterval(playInterval); playing = false; btn.textContent = '▶'; return;
         }
-        const prev = frames[frameIndex++];
-        renderFrame(frames[frameIndex], prev, playDur);
-    }, playMs);
+        frameIndex = Math.round((_simT - t0) / 15000);
+        const cur = [new Date(_simT).toISOString()];
+        renderFrame(cur, prev, 0);
+        prev = cur;
+    }, PLAY_TICK);
 }
 
 document.getElementById('play-btn').addEventListener('click', () => {
@@ -1792,14 +1899,23 @@ document.getElementById('play-btn').addEventListener('click', () => {
 function updateSpeedCaption(btn) {
     document.getElementById('speed-caption').textContent = btn.dataset.cap || '';
 }
+// Speed is wall-clock based: each gear targets a whole-day playback duration. The
+// loop advances simulated time by (realΔ × scale) every tick and renders trams at
+// that exact time, so the actual duration matches the caption regardless of how
+// fast the device can draw (it just renders fewer in-between steps when fast).
+const PLAY_TICK = 40;          // ms between render ticks (~25 fps)
+function activeSpeedMins() {
+    const btn = document.querySelector('#speed-group .spd.active');
+    return btn ? (parseFloat(btn.dataset.mins) || 3) : 3;
+}
+function applySpeedTiming() { playMs = PLAY_TICK; playDur = 0; }
 document.getElementById('speed-group').addEventListener('click', e => {
     const btn = e.target.closest('.spd');
     if (!btn) return;
     document.querySelectorAll('.spd').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-    playMs  = parseInt(btn.dataset.ms);
-    playDur = parseInt(btn.dataset.dur);
     updateSpeedCaption(btn);
+    applySpeedTiming();
     // Restart interval if already playing
     if (playing) { clearInterval(playInterval); startPlayback(); }
 });

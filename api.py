@@ -16,6 +16,7 @@ load_dotenv()
 # (still accumulating). LRU-capped to bound memory.
 DUBLIN = ZoneInfo("Europe/Dublin")
 _replay_cache = OrderedDict()
+_trips_cache = OrderedDict()
 _REPLAY_CACHE_MAX = 20
 
 app = FastAPI()
@@ -128,6 +129,61 @@ def get_replay_day(date: str = Query(..., description="Date in YYYY-MM-DD format
         _replay_cache.move_to_end(date)
         while len(_replay_cache) > _REPLAY_CACHE_MAX:
             _replay_cache.popitem(last=False)    # evict least-recently-used
+    return result
+
+
+@app.get("/api/trips-day")
+def get_trips_day(date: str = Query(..., description="Date in YYYY-MM-DD format")):
+    """Return stop-visit events for a full day, for client-side tram reconstruction.
+
+    The Luas feed has no vehicle id, so individual trams can't be identified directly.
+    But a tram is physically *at* a stop when its forecast hits due_mins=0 ("DUE").
+    We return every such (time, stop, destination, direction) event; the client chains
+    these into individual trips by route order + time and interpolates positions.
+
+    Consecutive DUE polls for the same (destination, direction, stop) — the ~20-40s a
+    tram dwells — are collapsed to a single event (earliest time). Cached per past day.
+    """
+    today = datetime.now(DUBLIN).date().isoformat()
+    cacheable = date < today
+    if cacheable and date in _trips_cache:
+        _trips_cache.move_to_end(date)
+        return _trips_cache[date]
+
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT EXTRACT(EPOCH FROM ta.observed_at)::bigint AS t,
+               ta.stop_abv, ta.direction, ta.destination
+        FROM tram_arrivals ta
+        WHERE ta.observed_at >= (%s::date::timestamp AT TIME ZONE 'Europe/Dublin')
+          AND ta.observed_at <  ((%s::date + 1)::timestamp AT TIME ZONE 'Europe/Dublin')
+          AND ta.due_mins = 0
+        ORDER BY ta.observed_at
+    """, (date, date))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    # Collapse the dwell burst: same (destination, direction, stop) within DEDUP_S
+    # seconds is one visit. Keep the earliest time of each cluster.
+    DEDUP_S = 90
+    last_seen = {}      # (dest, dir, stop) -> last kept time
+    result = []
+    for r in rows:
+        k = (r["destination"], r["direction"], r["stop_abv"])
+        t = r["t"]
+        if k in last_seen and t - last_seen[k] < DEDUP_S:
+            continue
+        last_seen[k] = t
+        result.append({"t": t, "stop_abv": r["stop_abv"],
+                       "direction": r["direction"], "destination": r["destination"]})
+
+    if cacheable:
+        _trips_cache[date] = result
+        _trips_cache.move_to_end(date)
+        while len(_trips_cache) > _REPLAY_CACHE_MAX:
+            _trips_cache.popitem(last=False)
     return result
 
 
