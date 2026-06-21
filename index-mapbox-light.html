@@ -35,15 +35,9 @@
         }
 
         /* ── Compact top controls (glassmorphism strip) ── */
-        #top-controls {
-            position: fixed; top: 68px; left: 16px; z-index: 20;
-            background: rgba(255,255,255,0.65);
-            backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(255,255,255,0.7);
-            border-radius: 14px; padding: 8px 12px;
-            box-shadow: 0 2px 16px rgba(0,0,0,0.10);
-        }
-        #controls-row { display: flex; align-items: center; gap: 6px; }
+        /* Top-left controls + loading indicator fully removed (auto-plays; scrub via timeline). */
+        #top-controls { display: none; }
+        #controls-row { display: none; }
         select {
             background: transparent; color: #222; border: none;
             padding: 2px 2px; font-size: 12px; font-weight: 500;
@@ -190,35 +184,6 @@
         }
         body.dark #date-label-chevron { filter: invert(1) brightness(1.6); }
 
-        #config-panel {
-            position: fixed; top: 16px; right: 48px; z-index: 10;
-            background: rgba(255,255,255,0.97); border: 1px solid rgba(0,0,0,0.10);
-            border-radius: 12px; padding: 14px 18px; min-width: 340px;
-            box-shadow: 0 4px 24px rgba(0,0,0,0.12);
-        }
-        .config-title {
-            font-size: 13px; font-weight: 700; color: #222;
-            display: flex; align-items: center; justify-content: space-between;
-            cursor: pointer; user-select: none; margin-bottom: 0;
-        }
-        .config-title .chevron {
-            font-size: 10px; color: #aaa; transition: transform 0.2s;
-            display: inline-block;
-        }
-        .config-title .chevron.open { transform: rotate(180deg); }
-        #config-body { overflow: hidden; transition: max-height 0.25s ease, margin-top 0.25s ease; max-height: 0; margin-top: 0; }
-        #config-body.open { max-height: 400px; margin-top: 12px; }
-        .config-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-        .config-row:last-child { margin-bottom: 0; }
-        .config-label { font-size: 12px; color: #555; min-width: 90px; }
-        .toggle-group { display: flex; background: #ebebf0; border-radius: 20px; padding: 3px; gap: 2px; }
-        .tog {
-            border: none; background: transparent; border-radius: 16px;
-            padding: 5px 13px; font-size: 12px; cursor: pointer; color: #555;
-            transition: background 0.15s, color 0.15s; white-space: nowrap;
-        }
-        .tog.active { background: #5a5fcf; color: #fff; font-weight: 600; }
-
         /* ── Settings panel (gear, bottom-right) ── */
         /* Icon-only (no background) — soft drop-shadow keeps it legible on any map. */
         #settings-btn {
@@ -263,13 +228,25 @@
         #settings-panel .spd { flex: 1; background: transparent; border-radius: 8px; padding: 6px 0; font-size: 12px; color: #555; font-weight: 700; }
         #settings-panel .spd.active { background: #f97316; color: #fff; }
         /* Caption under the speed row — updates with the selected gear */
-        #speed-caption { margin-top: 8px; font-size: 11px; font-weight: 500; color: #8a8a8f; letter-spacing: -0.01em; }
+        #speed-caption { margin-top: 8px; font-size: 11px; font-weight: 400; color: #8a8a8f; letter-spacing: -0.01em; }
+        /* Dark map: dark frosted settings panel + light text so the gears/caption read */
+        body.dark #settings-panel {
+            background: rgba(38,40,46,0.7);
+            border-color: rgba(255,255,255,0.10);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.45), 0 2px 8px rgba(0,0,0,0.3);
+        }
+        body.dark .set-section { color: rgba(255,255,255,0.92); }
+        body.dark #settings-panel #speed-group { background: rgba(255,255,255,0.10); }
+        body.dark #settings-panel .spd { color: rgba(255,255,255,0.72); }
+        body.dark #settings-panel .spd.active { color: #fff; }   /* stays orange */
+        body.dark #speed-caption { color: rgba(255,255,255,0.55); }
         /* map style cards */
         #mapstyle-cards { display: flex; gap: 10px; }
         .ms-card { flex: 1; cursor: pointer; text-align: center; }
         .ms-thumb {
             height: 46px; border-radius: 10px; border: 2px solid transparent;
-            box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.1); transition: border-color 0.15s;
+            background-size: cover; background-position: center;
+            transition: border-color 0.15s;
         }
         .ms-card.active .ms-thumb { border-color: #f97316; }
     </style>
@@ -304,84 +281,15 @@
     <div id="timeline-hover"></div>
 </div>
 
-<div id="config-panel">
-    <div class="config-title" id="config-toggle">
-        Preview configurations
-        <span class="chevron" id="config-chevron">▼</span>
-    </div>
-    <div id="config-body">
-    <div class="config-row">
-        <span class="config-label">Basemap</span>
-        <div class="toggle-group" id="basemap-group">
-            <button class="tog active" data-value="standard">Standard</button>
-            <button class="tog" data-value="standard-satellite">Standard satellite</button>
-        </div>
-    </div>
-    <div class="config-row">
-        <span class="config-label">Color themes</span>
-        <div class="toggle-group" id="theme-group">
-            <button class="tog active" data-value="default">Default</button>
-            <button class="tog" data-value="faded">Faded</button>
-            <button class="tog" data-value="monochrome">Monochrome</button>
-        </div>
-    </div>
-    <div class="config-row">
-        <span class="config-label">Light presets</span>
-        <div class="toggle-group" id="light-group">
-            <button class="tog" data-value="dawn">Dawn</button>
-            <button class="tog active" data-value="day">Day</button>
-            <button class="tog" data-value="dusk">Dusk</button>
-            <button class="tog" data-value="night">Night</button>
-        </div>
-    </div>
-    <div class="config-row">
-        <span class="config-label">POI labels</span>
-        <div class="toggle-group" id="poi-group">
-            <button class="tog active" data-value="show">Show</button>
-            <button class="tog" data-value="hide">Hide</button>
-        </div>
-    </div>
-    <div class="config-row">
-        <span class="config-label">Tram head</span>
-        <div class="toggle-group" id="head-group">
-            <button class="tog" data-value="basic">Basic</button>
-            <button class="tog active" data-value="distinct">Distinct ◉</button>
-        </div>
-    </div>
-    <div class="config-row">
-        <span class="config-label">Stop labels</span>
-        <div class="toggle-group" id="stop-style-group">
-            <button class="tog" data-value="A">A · Pill</button>
-            <button class="tog" data-value="B">B · Card</button>
-            <button class="tog active" data-value="C">C · Map</button>
-            <button class="tog" data-value="D">D · Dots</button>
-            <button class="tog" data-value="DC">D+C</button>
-            <button class="tog" data-value="E">E · None</button>
-        </div>
-    </div>
-    <div class="config-row">
-        <span class="config-label">Motion</span>
-        <div class="toggle-group" id="motion-group">
-            <button class="tog" data-value="off">Off</button>
-            <button class="tog active" data-value="comet">Comet</button>
-            <button class="tog" data-value="halo">Halo</button>
-            <button class="tog" data-value="chev">Chevrons</button>
-            <button class="tog" data-value="glow">Lead glow</button>
-            <button class="tog" data-value="pulse">Pulse</button>
-            <button class="tog" data-value="combo">Halo+Chev</button>
-        </div>
-    </div>
-    </div><!-- /config-body -->
-</div>
 
 <button id="settings-btn" title="Settings"><img src="settings.svg" alt="Settings" width="20" height="20"></button>
 <div id="settings-panel">
     <div class="set-section">Speed</div>
     <div id="speed-group">
         <button class="spd active" data-ms="400" data-dur="280" data-cap="Whole day in 18min">0.5x</button>
-        <button class="spd" data-ms="200" data-dur="180" data-cap="Whole day in 9min">1×</button>
-        <button class="spd" data-ms="100" data-dur="90" data-cap="Whole day in 4.5min">2×</button>
-        <button class="spd" data-ms="40"  data-dur="35" data-cap="Whole day in 2min">5×</button>
+        <button class="spd" data-ms="200" data-dur="180" data-cap="Whole day in 9min">1x</button>
+        <button class="spd" data-ms="100" data-dur="90" data-cap="Whole day in 4.5min">2x</button>
+        <button class="spd" data-ms="40"  data-dur="35" data-cap="Whole day in 2min">5x</button>
     </div>
     <div id="speed-caption"></div>
     <div class="set-section">Map style</div>
@@ -396,15 +304,11 @@ const API = '/luas-api';
 
 mapboxgl.accessToken = MAPBOX_TOKEN;
 
-// ── Config state ───────────────────────────────────────────────────────
-let cfgBasemap = 'standard';
-let cfgTheme   = 'default';
-let cfgLight   = 'day';
-let isStandardStyle = true;  // false when light-v11 is active for monochrome
-let cfgPOI       = 'show';      // 'show' | 'hide'
-let cfgHead      = 'distinct';  // 'basic' | 'distinct'
-let cfgStopStyle = 'C';         // A | B | C | D | DC | E (C = none until zoomed in)
-let cfgMotion    = 'comet';     // off|comet|halo|chev|glow|pulse|combo (motion accent style)
+// ── Render state (defaults; the old preview-config panel was removed) ────
+let isStandardStyle = false;    // true only for a Mapbox Standard style (unused now)
+let cfgHead      = 'distinct';  // tram model visible
+let cfgStopStyle = 'C';         // stop-label style: map (names appear when zoomed in)
+let cfgMotion    = 'comet';     // motion accent: comet trail
 // Timeline scrubber features (toggle live in the Timeline panel)
 let tlCfg = { hours: true, hist: true, bubble: true, daynight: false };
 let _tlCounts = null, _tlCountsKey = null;   // cached per-frame tram counts (histogram)
@@ -1194,12 +1098,6 @@ map.on('style.load', async () => {
     // Safety: keep mercator (the custom Three.js tram layer's matrix math assumes it).
     map.setProjection('mercator');
 
-    if (isStandardStyle) {
-        map.setConfigProperty('basemap', 'colorTheme',
-            cfgTheme === 'monochrome' ? 'default' : cfgTheme);
-        map.setConfigProperty('basemap', 'lightPreset', cfgLight);
-    }
-
     setProgress(20, 'Fetching stops…');
     if (!stopsCache)   stopsCache   = await apiFetch('/api/stops');
     if (!routesCache)  routesCache  = await fetch('/routes.geojson').then(r => r.json());
@@ -1958,88 +1856,11 @@ function applyStopStyle(key) {
     map.setLayoutProperty('stop-labels', 'text-field', s.field);
     Object.entries(s.layout).forEach(([p, v]) => map.setLayoutProperty('stop-labels', p, v));
     Object.entries(s.paint).forEach(([p, v]) => map.setPaintProperty('stop-labels', p, v));
-    activateToggle('stop-style-group', key);
 }
 
-// ── Config panel collapse ─────────────────────────────────────────────
-document.getElementById('config-toggle').addEventListener('click', () => {
-    const body = document.getElementById('config-body');
-    const chevron = document.getElementById('config-chevron');
-    const open = body.classList.toggle('open');
-    chevron.classList.toggle('open', open);
-});
-
-// ── Config panel ───────────────────────────────────────────────────────
-function activateToggle(groupId, value) {
-    document.querySelectorAll(`#${groupId} .tog`).forEach(b => {
-        b.classList.toggle('active', b.dataset.value === value);
-    });
-}
-
-document.getElementById('basemap-group').addEventListener('click', e => {
-    const btn = e.target.closest('.tog');
-    if (!btn) return;
-    cfgBasemap = btn.dataset.value;
-    activateToggle('basemap-group', cfgBasemap);
-    isStandardStyle = true;
-    syncStylePanel(null);
-    const styleUrl = cfgBasemap === 'standard-satellite'
-        ? 'mapbox://styles/mapbox/standard-satellite'
-        : 'mapbox://styles/mapbox/standard';
-    map.setStyle(styleUrl);
-});
-
-document.getElementById('theme-group').addEventListener('click', e => {
-    const btn = e.target.closest('.tog');
-    if (!btn) return;
-    cfgTheme = btn.dataset.value;
-    activateToggle('theme-group', cfgTheme);
-    if (cfgTheme === 'monochrome') {
-        // Switch to light-v11 (naturally near-monochrome) so trails stay in color
-        if (isStandardStyle) { isStandardStyle = false; map.setStyle('mapbox://styles/mapbox/light-v11'); }
-    } else {
-        // Switch back to Standard if we were on light-v11
-        if (!isStandardStyle) { isStandardStyle = true; map.setStyle('mapbox://styles/mapbox/standard'); }
-        else map.setConfigProperty('basemap', 'colorTheme', cfgTheme);
-    }
-});
-
-document.getElementById('light-group').addEventListener('click', e => {
-    const btn = e.target.closest('.tog');
-    if (!btn) return;
-    cfgLight = btn.dataset.value;
-    activateToggle('light-group', cfgLight);
-    if (isStandardStyle) map.setConfigProperty('basemap', 'lightPreset', cfgLight);
-});
-
-
-document.getElementById('poi-group').addEventListener('click', e => {
-    const btn = e.target.closest('.tog');
-    if (!btn) return;
-    cfgPOI = btn.dataset.value;
-    activateToggle('poi-group', cfgPOI);
-    if (isStandardStyle) map.setConfigProperty('basemap', 'showPointOfInterestLabels', cfgPOI === 'show');
-});
-
-document.getElementById('head-group').addEventListener('click', e => {
-    const btn = e.target.closest('.tog');
-    if (!btn) return;
-    cfgHead = btn.dataset.value;
-    activateToggle('head-group', cfgHead);
-    tramLayer.setVisible(cfgHead === 'distinct');
-});
-
-document.getElementById('stop-style-group').addEventListener('click', e => {
-    const btn = e.target.closest('.tog');
-    if (!btn) return;
-    cfgStopStyle = btn.dataset.value;
-    applyStopStyle(cfgStopStyle);
-});
-
-// ── Motion mode (debugger): off|comet|halo|chev|glow|pulse|combo ─────────
+// ── Motion accent (comet trail) ──────────────────────────────────────────
 function applyMotionMode(mode) {
     cfgMotion = mode;
-    activateToggle('motion-group', mode);
     const set = (id, on) => { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none'); };
     // Comet uses glow + core; leading glow uses glow only.
     const lineOn = mode === 'comet' || mode === 'glow';
@@ -2054,19 +1875,9 @@ function applyMotionMode(mode) {
         map.getSource(s)?.setData(EMPTY);
     map.triggerRepaint();
 }
-document.getElementById('motion-group').addEventListener('click', e => {
-    const btn = e.target.closest('.tog');
-    if (!btn) return;
-    applyMotionMode(btn.dataset.value);
-});
 
 // ── Map styles ──────────────────────────────────────────────────────────
 const _OMT = s => `https://raw.githubusercontent.com/openmaptiles/${s}/master/style.json`;
-
-function syncStylePanel(activeIndex) {
-    document.querySelectorAll('.sp-row').forEach(r =>
-        r.classList.toggle('active', +r.dataset.i === activeIndex));
-}
 
 async function applyStyle(d, index) {
     isStandardStyle = !!d.std;
@@ -2101,18 +1912,18 @@ async function applyStyle(d, index) {
 // Matter — the equivalent light/dark CARTO basemaps — instead.
 const MAP_STYLES = [
     { key: 'standard', label: 'Standard', name: 'Standard', json: _OMT('klokantech-basic-gl-style'),
-      thumb: 'linear-gradient(135deg,#eceae4,#dcd9d0)' },
+      img: 'standard.png' },
     { key: 'light',    label: 'Light',    name: 'Light',    json: _OMT('positron-gl-style'),
-      thumb: 'linear-gradient(135deg,#f7f7f9,#e7e7ec)' },
+      img: 'light.png' },
     { key: 'dark',     label: 'Dark',     name: 'Dark',     json: _OMT('dark-matter-gl-style'),
-      thumb: 'linear-gradient(135deg,#3a3f47,#22262c)' },
+      img: 'dark.png' },
 ];
 let cfgMapStyle = 'standard';   // matches the Klokantech Basic default
 
 function buildMapStyleCards() {
     document.getElementById('mapstyle-cards').innerHTML = MAP_STYLES.map(s =>
         `<div class="ms-card${s.key === cfgMapStyle ? ' active' : ''}" data-key="${s.key}" title="${s.label}">
-            <div class="ms-thumb" style="background:${s.thumb}"></div>
+            <div class="ms-thumb" style="background-image:url(${s.img})"></div>
         </div>`).join('');
 }
 function syncMapStyleCards() {
