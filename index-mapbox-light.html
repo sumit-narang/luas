@@ -1278,7 +1278,15 @@ map.on('style.load', async () => {
     // white at the head. Per-feature line-opacity ('op') is driven by tram speed
     // (updateTrams), and the geometry length is too — fast trams streak, slow ones
     // barely trail. line-gradient fades transparent (tail) → bright (head).
-    for (const [base, rgb] of [['trail-red', '221,17,34'], ['trail-green', '22,163,74']]) {
+    // On the dark map use a *lighter* trail colour than the route line, otherwise
+    // the comet blends into its own line (the red line is already near-max-bright
+    // #ff2020, so a "brighter red" looks identical — it needs to go coral/light to
+    // read as a glow). Green works the same way (comet lighter than its line).
+    const _trailDark = cfgMapStyle === 'dark';
+    for (const [base, rgb] of [
+        ['trail-red',   _trailDark ? '255,138,138' : '221,17,34'],
+        ['trail-green', _trailDark ? '90,240,150'  : '22,163,74']
+    ]) {
         map.addSource(base, { type: 'geojson', lineMetrics: true,
             data: { type: 'FeatureCollection', features: [] } });
         map.addLayer({ id: `${base}-glow`, type: 'line', source: base, slot: 'top',
