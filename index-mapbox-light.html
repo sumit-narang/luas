@@ -1509,11 +1509,11 @@ async function loadDate(date) {
     try {
         const data = await apiFetch(`/api/replay-day?date=${date}`);
         frames = buildFrames(data);
-        // Start playback at 6am Dublin (services barely run before then) — fall back
-        // to the first frame if there's nothing that early.
+        // Start playback at 9am Dublin — fall back to the first frame if there's
+        // nothing that early.
         frameIndex = 0;
         for (let i = 0; i < frames.length; i++) {
-            if (dubHour(new Date(frames[i][0]).getTime()) >= 6) { frameIndex = i; break; }
+            if (dubHour(new Date(frames[i][0]).getTime()) >= 9) { frameIndex = i; break; }
         }
         if (frames.length > 0) {
             document.getElementById('play-btn').disabled = false;
