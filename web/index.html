@@ -120,7 +120,7 @@
         .dp-item:active { background: rgba(0,0,0,0.10); }
         .dp-item.dp-selected { color: #f97316; font-weight: 600; }
         .dp-item.dp-selected::after {
-            content: url(check.svg); display: inline-block; line-height: 0;
+            content: url(assets/check.svg); display: inline-block; line-height: 0;
         }
         /* Dark map: dark frosted glass + light text (selected stays orange) */
         body.dark #date-picker {
@@ -268,7 +268,7 @@
 <div id="map"></div>
 <div id="edge-blur"></div>
 <div id="map-credit">© <a href="https://www.mapbox.com/about/maps/" target="_blank" rel="noopener">Mapbox</a> · <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> · <a href="https://www.maptiler.com/copyright/" target="_blank" rel="noopener">MapTiler</a></div>
-<div id="luas-logo"><img src="luas.svg" alt="Luas"></div>
+<div id="luas-logo"><img src="assets/luas.svg" alt="Luas"></div>
 
 <div id="top-controls">
     <div id="controls-row">
@@ -282,7 +282,7 @@
 <div id="date-wheel"></div>
 <div id="date-label">
     <span id="date-label-text"></span>
-    <img id="date-label-chevron" src="dropdown.svg" alt="" width="28" height="28">
+    <img id="date-label-chevron" src="assets/dropdown.svg" alt="" width="28" height="28">
 </div>
 <div id="date-picker"></div>
 <div id="trams-count"></div>
@@ -294,7 +294,7 @@
 </div>
 
 
-<button id="settings-btn" title="Settings"><img src="settings.svg" alt="Settings" width="20" height="20"></button>
+<button id="settings-btn" title="Settings"><img src="assets/settings.svg" alt="Settings" width="20" height="20"></button>
 <div id="settings-panel">
     <div class="set-section">Speed</div>
     <div id="speed-group">
@@ -1226,8 +1226,8 @@ map.on('style.load', async () => {
 
     setProgress(20, 'Fetching stops…');
     if (!stopsCache)   stopsCache   = await apiFetch('/api/stops');
-    if (!routesCache)  routesCache  = await fetch('/routes.geojson').then(r => r.json());
-    if (!snappedCache) snappedCache = await fetch('/routes-snapped.geojson').then(r => r.json());
+    if (!routesCache)  routesCache  = await fetch('data/routes.geojson').then(r => r.json());
+    if (!snappedCache) snappedCache = await fetch('data/routes-snapped.geojson').then(r => r.json());
     stops = stopsCache;
 
     // Build route indexes for snapping
@@ -2066,11 +2066,11 @@ async function applyStyle(d, index) {
 // Matter — the equivalent light/dark CARTO basemaps — instead.
 const MAP_STYLES = [
     { key: 'standard', label: 'Standard', name: 'Standard', json: _OMT('klokantech-basic-gl-style'),
-      img: 'standard.png' },
+      img: 'assets/standard.png' },
     { key: 'light',    label: 'Light',    name: 'Light',    json: _OMT('positron-gl-style'),
-      img: 'light.png' },
+      img: 'assets/light.png' },
     { key: 'dark',     label: 'Dark',     name: 'Dark',     json: _OMT('dark-matter-gl-style'),
-      img: 'dark.png' },
+      img: 'assets/dark.png' },
 ];
 let cfgMapStyle = 'standard';   // matches the Klokantech Basic default
 

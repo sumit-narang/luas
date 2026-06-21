@@ -12,21 +12,34 @@ The system has been running continuously since early 2026, collecting data aroun
 
 ## What it does
 
-Every 20 seconds, a collector script polls the Luas Forecasting API for all 67 stops and records every tram arrival prediction into a PostgreSQL database. A web frontend lets you pick any date and hour, then watch the trams move across a map in real time.
+Every 20 seconds, a collector script polls the Luas Forecasting API for all 67 stops and records every tram arrival prediction into a PostgreSQL database. A web frontend (`web/index.html`) lets you pick any day and watch **3D tram models** replay the whole day's movements along the real track on a Mapbox map. Because the feed has no vehicle id, individual trams are reconstructed from the per-stop "DUE" moments (see `docs/replay-visualization.md`).
 
 ---
 
-## File Overview
+## Project structure
 
-| File | What it does |
-|---|---|
-| `collector.py` | Runs 24/7 on the server. Polls the Luas API every 20 seconds and saves tram arrival data to the database. |
-| `api.py` | Web API (FastAPI) that the frontend talks to. Serves stop locations, available dates, and replay data. |
-| `index.html` | The entire frontend — a Mapbox map with play/pause controls to replay tram movements. |
-| `backup.sh` | Runs nightly via cron. Dumps the database, compresses it, uploads to Google Drive, and deletes local copies older than 7 days. |
-| `luas-api.service` | Systemd config that keeps `api.py` running as a background service on the server. |
-| `requirements.txt` | Python dependencies. Install with `pip install -r requirements.txt`. |
-| `.env.example` | Template showing what environment variables are needed. Copy to `.env` and fill in your values. |
+```
+luas/
+├── web/                     # frontend (served as the document root)
+│   ├── index.html           # the 3D replay app
+│   ├── assets/              # UI icons + map-style thumbnails (svg/png)
+│   ├── data/                # route geometry (routes.geojson, routes-snapped.geojson)
+│   └── three.min.js         # Three.js (local copy, git-ignored)
+├── server/                  # backend (deployed to the VPS at /opt/luas)
+│   ├── api.py               # FastAPI: stops, dates, replay/trips endpoints
+│   ├── collector.py         # 24/7 poller → PostgreSQL
+│   ├── backup.sh            # nightly DB dump → Google Drive (cron)
+│   ├── luas-api.service     # systemd unit for api.py
+│   └── requirements.txt     # Python dependencies
+├── serve.py                 # local dev server: injects .env tokens, proxies /luas-api
+├── docs/                    # design/perf notes (git-ignored)
+├── .env / .env.example      # secrets (real .env is git-ignored)
+└── README.md
+```
+
+> **Note:** the deployed VPS keeps a **flat** layout at `/opt/luas` (the `server/`
+> files live directly there). The `server/` folder is just how the repo is
+> organised — deploy by copying `server/api.py` → `/opt/luas/api.py`, etc.
 
 ---
 
@@ -69,13 +82,19 @@ python seed_stops.py
 ### Run the collector
 
 ```bash
-python collector.py
+python server/collector.py
 ```
 
 ### Run the API
 
 ```bash
-uvicorn api:app --host 0.0.0.0 --port 8000
+uvicorn api:app --host 0.0.0.0 --port 8000 --app-dir server
+```
+
+### Run the frontend (local dev)
+
+```bash
+python serve.py     # serves web/ at http://localhost:8888 and proxies the API
 ```
 
 ---

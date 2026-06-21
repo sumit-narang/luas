@@ -8,7 +8,7 @@ docs/
 *.jpeg
 *.png
 # …but keep the map-style preview thumbnails used by the settings panel
-!standard.png
-!light.png
-!dark.png
+!web/assets/standard.png
+!web/assets/light.png
+!web/assets/dark.png
 three.min.js

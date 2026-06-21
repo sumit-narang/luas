@@ -6,7 +6,7 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 # Load .env
 env = {}
-env_path = os.path.join(os.path.dirname(__file__), '.env')
+env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
 with open(env_path) as f:
     for line in f:
         line = line.strip()
@@ -54,6 +54,8 @@ class Handler(SimpleHTTPRequestHandler):
     def send_head(self):
         if self.path.endswith('.html') or self.path == '/':
             path = self.translate_path(self.path)
+            if os.path.isdir(path):                 # "/" → serve (and inject into) index.html
+                path = os.path.join(path, 'index.html')
             try:
                 with open(path, 'rb') as f:
                     content = f.read().decode('utf-8')
@@ -79,7 +81,10 @@ class Handler(SimpleHTTPRequestHandler):
 
 if __name__ == '__main__':
     port = 8888
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    # Serve the frontend from web/ as the document root (so / → web/index.html,
+    # /assets/…, /data/…). The /luas-api proxy and .env loading are handled above
+    # relative to this file's location, so serve.py itself stays at the repo root.
+    os.chdir(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'web'))
     print(f'Serving http://localhost:{port}/')
     print(f'  → HTML: token injected from .env')
     print(f'  → /luas-api: proxied to {PROD_API}')
