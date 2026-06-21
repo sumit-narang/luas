@@ -25,6 +25,10 @@
         #map-credit a { color: inherit; text-decoration: none; }
         #map-credit a:hover { text-decoration: underline; }
         body.dark #map-credit { color: rgba(255,255,255,0.45); }
+        /* Narrower screens: centre the credit across the screen width + smaller text. */
+        @media (max-width: 1200px) {
+            #map-credit { left: 0; right: 0; text-align: center; font-size: 8px; }
+        }
 
         /* ── LUAS logo ── */
         #luas-logo {
@@ -32,10 +36,9 @@
         }
         #luas-logo img {
             display: block; height: 28px;
-            filter: drop-shadow(0 1px 4px rgba(255,255,255,0.7));
         }
         /* Dark map: the SVG is dark — flip it to light. */
-        body.dark #luas-logo img { filter: invert(1) drop-shadow(0 1px 4px rgba(0,0,0,0.6)); }
+        body.dark #luas-logo img { filter: invert(1); }
 
         /* ── Compact top controls (glassmorphism strip) ── */
         /* Top-left controls + loading indicator fully removed (auto-plays; scrub via timeline). */
@@ -224,6 +227,12 @@
             to   { opacity: 1; transform: translateY(0) scale(1); }
         }
         #settings-panel.open { display: block; }
+        /* Narrow screens: move the gear to the top, level with the LUAS logo, and
+           open the panel downward from there. */
+        @media (max-width: 480px) {
+            #settings-btn { top: 16px; bottom: auto; }   /* centre level with the logo */
+            #settings-panel { top: 64px; bottom: auto; transform-origin: top right; }
+        }
         .set-section { font-size: 12px; font-weight: 700; color: #333; margin: 0 0 8px; }
         .set-section:not(:first-child) { margin-top: 16px; }
         /* speed row inside the panel */
