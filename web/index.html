@@ -742,7 +742,20 @@ const tramLayer = {
     // shape clean (straight, no skew) whenever it's drawn larger than real size.
     _scaleAt(zoom) {
         const mpp = (156543.03392 * Math.cos(_CTR_LAT * Math.PI / 180)) / Math.pow(2, zoom);
-        return Math.min(40.0, Math.max(2.0, (10 * mpp) / 8));
+        // One smooth, always-growing curve (no flat mid-band, no sudden kink): pick a
+        // target on-screen length in px from zoom→px anchor points, then convert to a
+        // model scale. Floored/capped so the tram stays visible when far out but never
+        // fills the screen. Model length ≈ 24.9 m.
+        const A = [[11, 18], [13, 32], [15, 55], [17, 110], [19, 260]];
+        const n = A.length;
+        let px;
+        if (zoom <= A[0][0])
+            px = A[0][1] + (A[1][1] - A[0][1]) * (zoom - A[0][0]) / (A[1][0] - A[0][0]);
+        else if (zoom >= A[n - 1][0])
+            px = A[n - 2][1] + (A[n - 1][1] - A[n - 2][1]) * (zoom - A[n - 2][0]) / (A[n - 1][0] - A[n - 2][0]);
+        else { let i = 0; while (A[i + 1][0] < zoom) i++; px = A[i][1] + (A[i + 1][1] - A[i][1]) * (zoom - A[i][0]) / (A[i + 1][0] - A[i][0]); }
+        px = Math.max(14, Math.min(340, px));
+        return px * mpp / 24.9;
     },
 
     // Build one car and capture each mesh's local positions (in car space, with
@@ -903,7 +916,7 @@ const tramLayer = {
                         // so a stationary tram doesn't show a misleading streak.
                         const moveGate = Math.min(1, (speed || 0) / 2.5);   // 0 stopped … 1 moving
                         const trailLen = VLEN * (0.1 + 1.15 * moveGate);
-                        op = 0.55 * moveGate;
+                        op = 0.40 * moveGate;   // softer trail (many trams overlap on shared track)
                         const headD = Math.max(0, Math.min(idx.totalDist, routeDist + dir * VLEN * 0.8));
                         const tailD = headD + dir * trailLen;
                         for (let i = 0; i <= SN; i++)
@@ -949,10 +962,14 @@ const tramLayer = {
     render(gl, args) {
         if (!_mcRef || !this._active || !this._renderer) return;
 
-        // Level-of-detail: hide the yellow stripes when zoomed out (otherwise the
-        // bright yellow is all that reads against the map and the tram looks all-
-        // yellow). Done here so it tracks zoom even while playback is paused.
-        const showYellow = this._map.getZoom() >= 14.5;
+        // Below this zoom the 3D tram is a tiny speck — hide the model and let the
+        // comet trail (a separate Mapbox layer) carry the motion.
+        if (this._map.getZoom() < 9.5) return;
+
+        // Keep the clean, no-yellow look at every zoom (the appearance it had when
+        // zoomed out to ~z13): the yellow livery stripes and the nose "smile" stay
+        // hidden at all zooms.
+        const showYellow = false;
         for (const e of this._objs.values())
             for (const m of e.yellowMeshes)
                 if (m.visible !== showYellow) m.visible = showYellow;
@@ -2134,6 +2151,7 @@ document.addEventListener('click', e => {
         _setPanel.classList.remove('open'); _setBtn.classList.remove('open');
     }
 });
+
 </script>
 </body>
 </html>
