@@ -1315,8 +1315,10 @@ map.on('style.load', async () => {
     const redFeature   = routesCache.features.find(f => f.properties.line === 'Red');
     const greenFeature = routesCache.features.find(f => f.properties.line === 'Green');
 
+    // Softer red on the dark map — the near-neon #ff2020 glares against black.
+    const _redLine = cfgMapStyle === 'dark' ? '#ec3232' : '#ff2020';
     for (const [id, feature, color] of [
-        ['red-route',   redFeature,   '#ff2020'],
+        ['red-route',   redFeature,   _redLine],
         ['green-route', greenFeature, '#16A34A']
     ]) {
         map.addSource(id, { type: 'geojson', data: feature });
@@ -1461,7 +1463,7 @@ map.on('style.load', async () => {
             return {
                 type: 'Feature',
                 geometry: { type: 'Point', coordinates: [lon, lat] },
-                properties: { color: s.line === 'Red' ? '#ff2020' : '#16A34A', name: s.stop_name,
+                properties: { color: s.line === 'Red' ? _redLine : '#16A34A', name: s.stop_name,
                               offset_x, offset_y, anchor, terminus: TERMINI.has(s.stop_abv) }
             };
         })
