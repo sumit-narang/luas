@@ -118,8 +118,14 @@
             from { opacity: 0; transform: translateX(-50%) translateY(8px) scale(0.96); }
             to   { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); }
         }
-        /* iOS-style scrollbar: hidden until scroll */
-        #date-picker::-webkit-scrollbar { width: 0; }
+        /* Thin, subtle scrollbar so it's clear there are more dates to scroll. */
+        #date-picker { scrollbar-width: thin; scrollbar-color: rgba(0,0,0,0.28) transparent; }
+        #date-picker::-webkit-scrollbar { width: 6px; }
+        #date-picker::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.25); border-radius: 3px; }
+        #date-picker::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.4); }
+        #date-picker::-webkit-scrollbar-track { background: transparent; }
+        body.dark #date-picker { scrollbar-color: rgba(255,255,255,0.3) transparent; }
+        body.dark #date-picker::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.28); }
         .dp-item {
             display: flex; align-items: center; justify-content: space-between; gap: 18px;
             padding: 10px 12px 10px 14px; margin: 1px 0;
