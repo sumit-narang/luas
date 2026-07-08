@@ -2019,6 +2019,14 @@ function applyStopStyle(key) {
     if (!map.getLayer('stops-dot') || !map.getLayer('stop-labels')) return;
     const s = STOP_LABEL_STYLES[key];
     Object.entries(s.dot).forEach(([p, v]) => map.setPaintProperty('stops-dot', p, v));
+    // On the dark map, a white dot ring glares — swap it for a dark ring that blends
+    // with the near-black basemap (covers the regular dots and the terminus dots).
+    if (document.body.classList.contains('dark')) {
+        if (s.dot['circle-stroke-color'] === '#fff')
+            map.setPaintProperty('stops-dot', 'circle-stroke-color', '#15171b');
+        if (map.getLayer('terminus-dot'))
+            map.setPaintProperty('terminus-dot', 'circle-stroke-color', '#15171b');
+    }
     // Enforce data-driven perpendicular placement — clears any variable-anchor from prior state
     map.setLayoutProperty('stop-labels', 'text-variable-anchor', null);
     map.setLayoutProperty('stop-labels', 'text-radial-offset', null);
