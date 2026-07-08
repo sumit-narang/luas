@@ -1277,6 +1277,9 @@ map.on('style.load', async () => {
         },
         onRemove(map, gl) { gl.deleteBuffer(this._buf); gl.deleteProgram(this._prog); },
         render(gl) {
+            // The blue bottom gradient is a light-map touch; on the dark map it reads
+            // as a whitish glow, so skip it there.
+            if (document.body.classList.contains('dark')) return;
             gl.useProgram(this._prog);
             gl.bindBuffer(gl.ARRAY_BUFFER, this._buf);
             const loc = gl.getAttribLocation(this._prog, 'p');
